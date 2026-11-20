@@ -667,13 +667,15 @@ db.ref("system/superAdminInitialized").once("value").then(function(snap) {
   showDiagAlert("Database Notice: " + err.message);
 });
 
+window.orgInDb = false;
 db.ref("organization").on("value", function(snap) {
   var data = snap.val();
   if (data) {
+    window.orgInDb = true;
     subdivisionsMap = data.subdivisions || {};
     sectionsMap = data.sections || {};
-  } else if (currentUserProfile) {
-    subdivisionsMap = {}; sectionsMap = {};
+  } else {
+    window.orgInDb = false;
   }
   refreshOrgDropdowns();
   renderDashboard();
@@ -1376,11 +1378,83 @@ function handleSelfPasswordChange(e) {
 }
 
 // SUPER ADMIN FUNCTIONS (STRICTLY ROLE-GUARDED)
+function syncOrgFirst() {
+  if (window.orgInDb) return Promise.resolve();
+  return db.ref("organization").set({ subdivisions: subdivisionsMap, sections: sectionsMap }).then(function(){ window.orgInDb = true; });
+}
 function handleAddSubdiv(e) {
-  e.preventDefault(); if (!isSuperAdmin()) return;
-  var n = document.getElementById("newSubdivName").value.trim(), id = n.toLowerCase().replace(/[^a-z0-9]/g,"_");
-  db.ref("organization/subdivisions/"+id).set({ id:id, name:n });
-  document.getElementById("newSubdivName").value = "";
+  e.preventDefault();
+  if (!isSuperAdmin()) { alert("Access Denied: Only Super Admin can add subdivisions."); return; }
+  var inp = document.getElementById("newSubdivName");
+  var n = (inp.value || "").trim();
+  if (!n) return;
+  var id = n.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || ("sub_" + Date.now());
+  syncOrgFirst().then(function() {
+    return db.ref("organization/subdivisions/" + id).set({ id: id, name: n });
+  }).then(function() {
+    inp.value = "";
+    alert('Subdivision "' + n + '" added!');
+  }).catch(function(err){ alert("Add Subdivision Error: " + err.message); });
+}
+function handleAddSection(e) {
+  e.preventDefault();
+  if (!isSuperAdmin()) { alert("Access Denied: Only Super Admin can add sections."); return; }
+  var sub = document.getElementById("newSecSubdivSelect").value;
+  var inp = document.getElementById("newSecName");
+  var n = (inp.value || "").trim();
+  if (!sub || !n) { alert("Please select Subdivision and enter Section name."); return; }
+  var id = (sub + "_" + n).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || ("sec_" + Date.now());
+  syncOrgFirst().then(function() {
+    return db.ref("organization/sections/" + id).set({ id: id, name: n, subdivision: sub });
+  }).then(function() {
+    inp.value = "";
+    alert('Section "' + n + '" added!');
+  }).catch(function(err){ alert("Add Section Error: " + err.message); });
+}
+function handleUpdateEmergencyBroadcast() {
+  if (!isSuperAdmin()) return;
+  var msg = document.getElementById("adminEmergencyInput").value.trim();
+  db.ref("system/emergencyBroadcast").set(msg || null).catch(function(err){ alert("Error: " + err.message); });
+}
+function exportFullJsonBackup() {
+  if (!isSuperAdmin()) return;
+  db.ref("/").once("value").then(function(snap) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(snap.val(),null,2)],{type:"application/json"}));
+    a.download = "TPCODL_KENDRAPARA_BACKUP_" + Date.now() + ".json";
+    a.click();
+  });
+}
+function renderAdminOrg() {
+  var subKeys = Object.keys(subdivisionsMap).filter(function(k){ return subdivisionsMap[k] && subdivisionsMap[k].name; });
+  document.getElementById("adminSubdivList").innerHTML = subKeys.length ? subKeys.map(function(key) {
+    var s = subdivisionsMap[key];
+    return '<div class="py-1.5 flex items-center justify-between gap-2"><span class="font-bold">'+escapeHtml(s.name)+'</span><button type="button" onclick="deleteSubdiv(\''+encodeURIComponent(key)+'\')" class="px-2 py-0.5 bg-red-100 hover:bg-red-600 text-red-700 hover:text-white rounded text-[11px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Delete</button></div>';
+  }).join("") : '<div class="py-2 text-slate-400">No subdivisions added.</div>';
+  var secKeys = Object.keys(sectionsMap).filter(function(k){ return sectionsMap[k] && sectionsMap[k].name; });
+  document.getElementById("adminSectionList").innerHTML = secKeys.length ? secKeys.map(function(key) {
+    var s = sectionsMap[key];
+    return '<div class="py-1.5 flex items-center justify-between gap-2"><span><b>'+escapeHtml(s.name)+'</b> <span class="text-slate-500">('+escapeHtml(s.subdivision)+')</span></span><button type="button" onclick="deleteSection(\''+encodeURIComponent(key)+'\')" class="px-2 py-0.5 bg-red-100 hover:bg-red-600 text-red-700 hover:text-white rounded text-[11px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Delete</button></div>';
+  }).join("") : '<div class="py-2 text-slate-400">No sections added.</div>';
+}
+function deleteSubdiv(encKey) {
+  if (!isSuperAdmin()) { alert("Access Denied: Only Super Admin can delete subdivisions."); return; }
+  var key = decodeURIComponent(encKey), sub = subdivisionsMap[key]; if (!sub) return;
+  var linkedSecKeys = Object.keys(sectionsMap).filter(function(k){ return sectionsMap[k] && sectionsMap[k].subdivision === sub.name; });
+  if (!confirm('Delete Subdivision "' + sub.name + '"?' + (linkedSecKeys.length ? '\n(' + linkedSecKeys.length + ' linked sections will also be deleted)' : ''))) return;
+  var updates = {}; updates["subdivisions/" + key] = null;
+  linkedSecKeys.forEach(function(sk){ updates["sections/" + sk] = null; });
+  syncOrgFirst().then(function(){ return db.ref("organization").update(updates); })
+    .then(function(){ alert('Subdivision "' + sub.name + '" deleted!'); })
+    .catch(function(err){ alert("Delete Error: " + err.message); });
+}
+function deleteSection(encKey) {
+  if (!isSuperAdmin()) { alert("Access Denied: Only Super Admin can delete sections."); return; }
+  var key = decodeURIComponent(encKey), sec = sectionsMap[key]; if (!sec) return;
+  if (!confirm('Delete Section "' + sec.name + '" (' + sec.subdivision + ')?')) return;
+  syncOrgFirst().then(function(){ return db.ref("organization/sections/" + key).remove(); })
+    .then(function(){ alert('Section "' + sec.name + '" deleted!'); })
+    .catch(function(err){ alert("Delete Error: " + err.message); });
 }
 function handleAddSection(e) {
   e.preventDefault(); if (!isSuperAdmin()) return;
