@@ -675,7 +675,8 @@ db.ref("organization").on("value", function(snap) {
     subdivisionsMap = data.subdivisions || {};
     sectionsMap = data.sections || {};
   } else {
-    window.orgInDb = false;
+    window.orgInDb = false;subdivisionsMap = {};
+    sectionsMap = {};
   }
   refreshOrgDropdowns();
   renderDashboard();
