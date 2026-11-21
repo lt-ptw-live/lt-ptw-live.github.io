@@ -20,6 +20,36 @@
     @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: 0.55; } }
     @media print { header, .no-print { display: none !important; } }
   </style>
+  <!-- PART 4: CORPORATE SIDEBAR & FINAL POLISH CSS -->
+<style id="part4CorporateCss">
+  html { scroll-behavior: smooth; }
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-track { background: #f1f5f9; }
+  ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  #corpSidebarToggleBtn, .corp-sidebar-brand, .corp-sidebar-motto { display: none; }
+  .corp-footer { margin-top: 24px; padding: 14px 16px; text-align: center; font-size: 11px; color: #475569; border-top: 1px solid #e2e8f0; background: #f8fafc; border-radius: 12px; }
+  @media (min-width: 1024px) {
+    #corpSidebarToggleBtn { display: inline-flex; align-items: center; gap: 6px; position: fixed; bottom: 16px; left: 14px; z-index: 60; background: #0f2550; color: #ffffff; border: 1px solid #3b82f6; border-radius: 999px; padding: 7px 14px; font-size: 11px; font-weight: 800; box-shadow: 0 6px 18px rgba(15,37,80,0.28); cursor: pointer; transition: all 0.2s ease; }
+    #corpSidebarToggleBtn:hover { background: #1d4ed8; transform: translateY(-1px); }
+    .corp-sidebar { position: fixed !important; top: var(--corp-header-h, 68px) !important; left: 0 !important; bottom: 0 !important; width: 238px !important; max-width: 238px !important; margin: 0 !important; padding: 12px 12px 62px 12px !important; background: #ffffff !important; border-right: 1px solid #dbe4f0 !important; border-bottom: none !important; box-shadow: 4px 0 18px rgba(15, 23, 42, 0.05) !important; overflow-y: auto !important; z-index: 35 !important; display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 8px !important; transition: transform 0.22s ease !important; }
+    .corp-sidebar .hidden { display: none !important; }
+    .corp-sidebar > div:not(.corp-sidebar-brand):not(.corp-sidebar-motto),
+    .corp-sidebar > div:not(.corp-sidebar-brand):not(.corp-sidebar-motto) > div { display: flex !important; flex-direction: column !important; align-items: stretch !important; width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; gap: 6px !important; }
+    .corp-sidebar button:not(.hidden) { width: 100% !important; display: flex !important; align-items: center !important; justify-content: flex-start !important; gap: 8px !important; text-align: left !important; padding: 9px 12px !important; border-radius: 10px !important; font-size: 12.5px !important; white-space: nowrap !important; transition: all 0.15s ease !important; }
+    .corp-sidebar button:hover { transform: translateX(2px); }
+    .corp-sidebar-brand { display: block; padding: 9px 11px; margin-bottom: 4px; border-radius: 10px; background: linear-gradient(135deg, #0f2550, #1e3a8a); color: #ffffff; }
+    .corp-sidebar-motto { display: block; margin-top: auto; padding: 10px; border-radius: 10px; background: #fffbeb; border: 1px solid #fde68a; color: #78350f; font-size: 10.5px; line-height: 1.4; font-weight: 700; text-align: center; }
+    .corp-content-shift { margin-left: 238px !important; max-width: calc(100% - 238px) !important; transition: margin-left 0.22s ease, max-width 0.22s ease !important; }
+    body.corp-sidebar-collapsed .corp-sidebar { transform: translateX(-250px) !important; }
+    body.corp-sidebar-collapsed .corp-content-shift { margin-left: 0 !important; max-width: 100% !important; }
+  }
+  @media print {
+    header, .corp-sidebar, #corpSidebarToggleBtn, button { display: none !important; }
+    .corp-content-shift { margin-left: 0 !important; max-width: 100% !important; }
+    body { background: #ffffff !important; }
+  }
+</style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
 
@@ -1830,6 +1860,79 @@ function renderPowerBiAnalytics() {
     return '<div><div class="flex justify-between mb-0.5"><span class="font-bold">'+(i+1)+'. '+escapeHtml(s.name)+'</span><span class="font-extrabold text-indigo-800">'+s.count+'</span></div><div class="h-2 bg-slate-200 rounded-full overflow-hidden"><div class="h-full bg-indigo-600" style="width:'+pct+'%"></div></div></div>';
   }).join("") : '<div class="text-slate-400 text-center py-3">No section PTW data.</div>';
 }
+  // PART 4: CORPORATE SIDEBAR & FINAL POLISH ENGINE
+(function initPart4CorporateUI() {
+  function setup() {
+    var hdr = document.querySelector("header");
+    function syncHeaderHeight() {
+      var h = hdr ? Math.ceil(hdr.getBoundingClientRect().height) : 68;
+      document.documentElement.style.setProperty("--corp-header-h", h + "px");
+    }
+    syncHeaderHeight();
+    window.addEventListener("resize", syncHeaderHeight);
+
+    var navEl = document.querySelector("nav");
+    if (!navEl) {
+      var tabBtns = Array.prototype.slice.call(document.querySelectorAll('button[onclick*="Tab("], button[data-tab]'));
+      if (tabBtns.length >= 2) {
+        var p = tabBtns[0].parentElement;
+        while (p && p !== document.body && p.querySelectorAll('button[onclick*="Tab("], button[data-tab]').length < tabBtns.length) {
+          p = p.parentElement;
+        }
+        if (p && p !== document.body) navEl = (p.parentElement && p.parentElement !== document.body && p.parentElement.tagName === "DIV" && p.parentElement.children.length === 1) ? p.parentElement : p;
+      }
+    }
+    if (!navEl || navEl.classList.contains("corp-sidebar")) return;
+
+    navEl.classList.add("corp-sidebar");
+
+    var brand = document.createElement("div");
+    brand.className = "corp-sidebar-brand";
+    brand.innerHTML = '<div style="font-size:10px;font-weight:800;letter-spacing:0.06em;color:#fde047;text-transform:uppercase;">TPCODL &bull; KED-1</div><div style="font-size:12px;font-weight:800;margin-top:2px;">LT Line PTW Portal</div>';
+    navEl.insertBefore(brand, navEl.firstChild);
+
+    var motto = document.createElement("div");
+    motto.className = "corp-sidebar-motto";
+    motto.innerHTML = '&#9889; Prepare &amp; Prevent,<br>Instead of Repair &amp; Repent<div style="font-size:9.5px;font-weight:600;color:#92400e;margin-top:3px;">Suraksha Niyam Palan Karein</div>';
+    navEl.appendChild(motto);
+
+    var parent = navEl.parentElement;
+    var mainEl = document.querySelector("main");
+    if (parent && parent !== document.body) {
+      parent.classList.add("corp-content-shift");
+    } else if (mainEl && !mainEl.contains(navEl)) {
+      mainEl.classList.add("corp-content-shift");
+    }
+
+    var footerHost = mainEl || parent;
+    if (footerHost && !document.getElementById("corpSystemFooter")) {
+      var ft = document.createElement("footer");
+      ft.id = "corpSystemFooter";
+      ft.className = "corp-footer no-print";
+      ft.innerHTML = '<strong>TPCODL Kendrapara Division (KED-1)</strong> &bull; Digital LT Line PTW Management System &bull; <em>"Prepare &amp; Prevent, Instead of Repair &amp; Repent"</em>';
+      footerHost.appendChild(ft);
+    }
+
+    var toggleBtn = document.getElementById("corpSidebarToggleBtn");
+    if (!toggleBtn) {
+      toggleBtn = document.createElement("button");
+      toggleBtn.id = "corpSidebarToggleBtn";
+      toggleBtn.type = "button";
+      (parent || document.body).appendChild(toggleBtn);
+    }
+    function applyCollapsed(collapsed) {
+      document.body.classList.toggle("corp-sidebar-collapsed", collapsed);
+      toggleBtn.innerHTML = collapsed ? '<i class="fa-solid fa-bars"></i> Show Menu' : '<i class="fa-solid fa-angles-left"></i> Hide Menu';
+      try { localStorage.setItem("ptw_sidebar_collapsed", collapsed ? "1" : "0"); } catch (e) {}
+    }
+    toggleBtn.onclick = function() {
+      applyCollapsed(!document.body.classList.contains("corp-sidebar-collapsed"));
+    };
+    try { applyCollapsed(localStorage.getItem("ptw_sidebar_collapsed") === "1"); } catch (e) { applyCollapsed(false); }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
+  else setup();
+})();
 </script>
 </body>
 </html>
