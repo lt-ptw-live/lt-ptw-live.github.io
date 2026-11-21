@@ -3658,6 +3658,200 @@ function renderPowerBiAnalytics() {
     if (++ticks >= 10) clearInterval(t);
   }, 1500);
 })();
+  // PART 9: FINAL AUDIT FIXES (DAY CHART SYNC, CASE-INSENSITIVE COUNTS, N/A ON ZERO PTW & SAFE DROPDOWNS)
+(function initPart9AuditFixes() {
+  function pad2(n) { return n < 10 ? "0" + n : String(n); }
+  function norm(v) { return String(v == null ? "" : v).trim().toUpperCase(); }
+  function esc(s) {
+    return (typeof escapeHtml === "function")
+      ? escapeHtml(String(s == null ? "" : s))
+      : String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+          return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+        });
+  }
+  function getTodayKey() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+
+  // 1. Fix Bug #1: Sync Date Picker, Today Button & Month Filter with Part 7 Trend Mode
+  function bindDaySyncControls() {
+    var mSel = document.getElementById("pbiMonthFilter");
+    var dateInp = document.getElementById("pbiDateFilter");
+    var todayBtn = document.getElementById("pbiTodayBtn");
+
+    if (dateInp && dateInp.dataset.part9Bound !== "1") {
+      dateInp.dataset.part9Bound = "1";
+      dateInp.onchange = function() {
+        if (dateInp.value) {
+          var ym = dateInp.value.slice(0, 7);
+          if (mSel && mSel.querySelector('option[value="' + ym + '"]')) mSel.value = ym;
+          if (typeof window.setPbiTrendMode === "function") window.setPbiTrendMode("DAY");
+          else if (typeof window.renderPowerBiAnalytics === "function") window.renderPowerBiAnalytics();
+        } else {
+          if (typeof window.setPbiTrendMode === "function") window.setPbiTrendMode("MONTH");
+          else if (typeof window.renderPowerBiAnalytics === "function") window.renderPowerBiAnalytics();
+        }
+      };
+    }
+
+    if (todayBtn && todayBtn.dataset.part9Bound !== "1") {
+      todayBtn.dataset.part9Bound = "1";
+      todayBtn.onclick = function() {
+        if (!dateInp) return;
+        dateInp.value = getTodayKey();
+        var ym = dateInp.value.slice(0, 7);
+        if (mSel && mSel.querySelector('option[value="' + ym + '"]')) mSel.value = ym;
+        if (typeof window.setPbiTrendMode === "function") window.setPbiTrendMode("DAY");
+        else if (typeof window.renderPowerBiAnalytics === "function") window.renderPowerBiAnalytics();
+      };
+    }
+
+    if (mSel && mSel.dataset.part9Bound !== "1") {
+      mSel.dataset.part9Bound = "1";
+      mSel.onchange = function() {
+        if (dateInp) dateInp.value = "";
+        if (typeof window.setPbiTrendMode === "function") window.setPbiTrendMode("MONTH");
+        else if (typeof window.renderPowerBiAnalytics === "function") window.renderPowerBiAnalytics();
+      };
+    }
+  }
+
+  // Sync Broadcast News reliably inside Key Insights
+  function syncBroadcastBox() {
+    var ul = document.getElementById("pbiInsightsList");
+    if (!ul || !ul.parentElement || !ul.parentElement.parentElement) return;
+    var news = "";
+    try {
+      if (typeof systemConfig !== "undefined" && systemConfig && systemConfig.emergencyBroadcast) {
+        news = String(systemConfig.emergencyBroadcast).trim();
+      }
+      if (!news) {
+        var bWrap = document.getElementById("emergencyBanner");
+        var bTxt = document.getElementById("emergencyBannerText");
+        if (bWrap && !bWrap.classList.contains("hidden") && bTxt) news = (bTxt.textContent || "").trim();
+      }
+    } catch (e) {}
+
+    var box = document.getElementById("pbiBroadcastInsightBox");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "pbiBroadcastInsightBox";
+      ul.parentElement.parentElement.insertBefore(box, ul.parentElement);
+    }
+    if (news) {
+      box.className = "mb-2.5 px-2.5 py-2 rounded-lg bg-amber-100 border border-amber-400 text-amber-950 text-[11px] font-extrabold shadow-sm flex items-start gap-2";
+      box.innerHTML = '<i class="fa-solid fa-bullhorn text-red-600 mt-0.5 shrink-0"></i><div><span class="inline-block bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded mr-1 align-middle">BROADCAST</span><span>' + esc(news) + '</span></div>';
+    } else {
+      box.className = "mb-2 px-2.5 py-1.5 rounded-lg bg-white/75 border border-emerald-200 text-slate-600 text-[10.5px] font-bold flex items-center gap-1.5";
+      box.innerHTML = '<i class="fa-solid fa-bullhorn text-emerald-700"></i><span>Broadcast News: No active announcement right now.</span>';
+    }
+  }
+
+  // 2. Fix Bug #3: Clean "N/A" display when 0 PTWs issued for selected filter
+  if (typeof window.renderPowerBiAnalytics === "function" && !window.renderPowerBiAnalytics._part9Wrapped) {
+    var origPbi = window.renderPowerBiAnalytics;
+    window.renderPowerBiAnalytics = function() {
+      origPbi.apply(this, arguments);
+      bindDaySyncControls();
+      var issEl = document.getElementById("pbiIssuedCount");
+      var issNum = issEl ? parseInt(String(issEl.textContent || "0").replace(/[^0-9]/g, ""), 10) : 0;
+      if (issNum === 0) {
+        var pctEl = document.getElementById("pbiClosurePctText");
+        if (pctEl) pctEl.textContent = "N/A";
+        var ring = document.getElementById("pbiRingArc");
+        if (ring) {
+          ring.setAttribute("stroke-dashoffset", "0");
+          ring.setAttribute("stroke", "#cbd5e1");
+        }
+        var tb = document.getElementById("pbiTargetBadge");
+        if (tb) {
+          tb.className = "mt-1 text-[10px] font-extrabold text-slate-500";
+          tb.innerHTML = 'No PTW Issued <i class="fa-solid fa-circle-minus"></i>';
+        }
+        var ul = document.getElementById("pbiInsightsList");
+        if (ul && ul.firstElementChild) {
+          ul.firstElementChild.innerHTML = '<i class="fa-solid fa-circle-info text-blue-600 mt-0.5 shrink-0"></i><span>No PTW issued for the selected period &mdash; <b>0</b> pending shutdowns.</span>';
+        }
+        ["pbiSecSummaryFoot", "pbiSecDetailsFoot"].forEach(function(fid) {
+          var ft = document.getElementById(fid);
+          if (ft) {
+            var lastTd = ft.querySelector("td:last-child");
+            if (lastTd && lastTd.textContent.trim() === "0%") lastTd.textContent = "N/A";
+          }
+        });
+      }
+      syncBroadcastBox();
+    };
+    window.renderPowerBiAnalytics._part9Wrapped = true;
+  }
+
+  // 3. Fix Bug #2: Case-insensitive Subdivision & Section Live Status + Legacy bucket
+  if (typeof window.renderDashboard === "function" && !window.renderDashboard._part9Wrapped) {
+    var origDash = window.renderDashboard;
+    window.renderDashboard = function() {
+      origDash.apply(this, arguments);
+      try {
+        var all = Object.values(ptwsMap || {});
+        var subBox = document.getElementById("subdivBreakdownContainer");
+        if (subBox) {
+          var knownSubs = {};
+          var subRows = Object.values(subdivisionsMap || {}).map(function(sd) {
+            var k = norm(sd.name);
+            knownSubs[k] = true;
+            var act = all.filter(function(p) { return norm(p.subdivision) === k && norm(p.status) === "ACTIVE"; }).length;
+            var tot = all.filter(function(p) { return norm(p.subdivision) === k; }).length;
+            return '<div class="flex justify-between p-2 bg-slate-50 rounded border"><b>' + esc(sd.name) + '</b><span><span class="text-red-600 font-bold mr-2">Active: ' + act + '</span>Total: ' + tot + '</span></div>';
+          });
+          var legacySubs = all.filter(function(p) { return !knownSubs[norm(p.subdivision)]; });
+          if (legacySubs.length) {
+            var lAct = legacySubs.filter(function(p) { return norm(p.status) === "ACTIVE"; }).length;
+            subRows.push('<div class="flex justify-between p-2 bg-amber-50 rounded border border-amber-200"><b>Other / Old Test Entries</b><span><span class="text-red-600 font-bold mr-2">Active: ' + lAct + '</span>Total: ' + legacySubs.length + '</span></div>');
+          }
+          subBox.innerHTML = subRows.join("");
+        }
+
+        var secBox = document.getElementById("sectionBreakdownContainer");
+        if (secBox) {
+          var knownSecs = {};
+          var secRows = Object.values(sectionsMap || {}).map(function(sc) {
+            var k = norm(sc.name);
+            knownSecs[k] = true;
+            var act = all.filter(function(p) { return norm(p.section) === k && norm(p.status) === "ACTIVE"; }).length;
+            var tot = all.filter(function(p) { return norm(p.section) === k; }).length;
+            return '<div class="flex justify-between p-2 bg-slate-50 rounded border"><span><b>' + esc(sc.name) + '</b> <span class="text-slate-400">(' + esc(sc.subdivision) + ')</span></span><span><span class="text-red-600 font-bold mr-2">Active: ' + act + '</span>Total: ' + tot + '</span></div>';
+          });
+          var legacySecs = all.filter(function(p) { return !knownSecs[norm(p.section)]; });
+          if (legacySecs.length) {
+            var lsAct = legacySecs.filter(function(p) { return norm(p.status) === "ACTIVE"; }).length;
+            secRows.push('<div class="flex justify-between p-2 bg-amber-50 rounded border border-amber-200"><span><b>Other / Old Test Sections</b></span><span><span class="text-red-600 font-bold mr-2">Active: ' + lsAct + '</span>Total: ' + legacySecs.length + '</span></div>');
+          }
+          secBox.innerHTML = secRows.join("");
+        }
+      } catch (e) {}
+    };
+    window.renderDashboard._part9Wrapped = true;
+  }
+
+  // 4. Case-insensitive Section Dropdown Cascade (Issue PTW, Signup, Admin)
+  window.populateSectionDropdown = function(subId, secId) {
+    var subEl = document.getElementById(subId);
+    var secEl = document.getElementById(secId);
+    if (!subEl || !secEl) return;
+    var subVal = norm(subEl.value);
+    var secs = Object.values(sectionsMap || {}).filter(function(s) {
+      return !subVal || norm(s.subdivision) === subVal;
+    });
+    secEl.innerHTML = '<option value="">Select Section</option>' + secs.map(function(s) {
+      return '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+    }).join("");
+  };
+
+  setTimeout(function() {
+    bindDaySyncControls();
+    if (typeof window.renderDashboard === "function") window.renderDashboard();
+  }, 900);
+})();
 </script>
 </body>
 </html>
