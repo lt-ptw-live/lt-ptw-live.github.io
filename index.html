@@ -189,7 +189,34 @@
           <div class="bg-amber-50 rounded-xl border border-amber-200 p-3 shadow-sm"><div class="text-[11px] font-bold text-amber-700">Pending Recovery</div><div id="kpiPendingRec" class="text-2xl font-extrabold text-amber-700 mt-1">0</div></div>
           <div class="bg-sky-50 rounded-xl border border-sky-200 p-3 shadow-sm"><div class="text-[11px] font-bold text-sky-800">Approved Members</div><div id="kpiTotalMembers" class="text-2xl font-extrabold text-sky-900 mt-1">0</div></div>
         </div>
-
+<!-- PART 3: POWER BI ANALYTICS -->
+        <div class="bg-white rounded-2xl border border-blue-100 shadow-sm p-4 space-y-4 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+            <div>
+              <span class="px-2 py-0.5 rounded bg-amber-400 text-blue-950 font-extrabold text-[10px] uppercase">Power BI MIS</span>
+              <h2 class="font-extrabold text-sm text-blue-950 mt-1">Division Executive Analytics & Monthly Trend</h2>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <select id="pbiMonthFilter" onchange="renderPowerBiAnalytics()" class="border rounded-lg px-2 py-1.5 font-semibold bg-slate-50"><option value="ALL">All Months</option></select>
+              <select id="pbiStatusFilter" onchange="renderPowerBiAnalytics()" class="border rounded-lg px-2 py-1.5 font-semibold bg-slate-50">
+                <option value="ALL">All Status</option><option value="ACTIVE">Active</option><option value="CLOSED">Closed</option><option value="RECOVERED">Recovered</option>
+              </select>
+              <button type="button" onclick="resetPowerBiFilters()" class="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 font-bold">Reset</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="rounded-xl bg-blue-950 text-white p-3"><div class="text-[10px] text-sky-200 font-bold uppercase">Filtered PTWs</div><div id="pbiFilteredCount" class="text-xl font-extrabold mt-0.5">0</div><div id="pbiFilteredSub" class="text-[10px] text-sky-200">0% of Total</div></div>
+            <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-3"><div class="text-[10px] text-emerald-800 font-bold uppercase">Clearance Rate</div><div id="pbiClearanceRate" class="text-xl font-extrabold text-emerald-700 mt-0.5">0%</div><div id="pbiClearanceSub" class="text-[10px] text-emerald-700">Closed + Recovered</div></div>
+            <div class="rounded-xl bg-amber-50 border border-amber-200 p-3"><div class="text-[10px] text-amber-800 font-bold uppercase">Peak Subdivision</div><div id="pbiTopSubdiv" class="text-sm font-extrabold text-amber-950 mt-1 truncate">-</div><div id="pbiTopSubdivCount" class="text-[10px] text-amber-800">0 PTWs</div></div>
+            <div class="rounded-xl bg-purple-50 border border-purple-200 p-3"><div class="text-[10px] text-purple-900 font-bold uppercase">Most Active Section</div><div id="pbiTopSection" class="text-sm font-extrabold text-purple-950 mt-1 truncate">-</div><div id="pbiTopSectionCount" class="text-[10px] text-purple-800">0 PTWs</div></div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="rounded-xl border bg-slate-50 p-3 space-y-2"><div class="flex justify-between font-extrabold text-blue-950"><span>PTW Status Breakdown</span><span id="pbiStatusLegendTotal" class="text-[10px] text-slate-500">0</span></div><div id="pbiStatusChartBox" class="space-y-2"></div></div>
+            <div class="rounded-xl border bg-slate-50 p-3 space-y-2"><div class="flex justify-between font-extrabold text-blue-950"><span>Monthly PTW Trend (Last 6 Months)</span><span class="text-[10px] text-slate-500">Live</span></div><div id="pbiMonthlyChartBox" class="h-40 flex items-end justify-around gap-2 pt-4 pb-1 px-2 bg-white rounded-lg border"></div></div>
+            <div class="rounded-xl border bg-slate-50 p-3 space-y-2"><div class="font-extrabold text-blue-950">Subdivision-Wise PTW Load</div><div id="pbiSubdivChartBox" class="space-y-2"></div></div>
+            <div class="rounded-xl border bg-slate-50 p-3 space-y-2"><div class="font-extrabold text-blue-950">Top 6 Sections by PTW Volume</div><div id="pbiSectionChartBox" class="space-y-2"></div></div>
+          </div>
+        </div>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
           <div class="bg-white rounded-xl border p-3.5 shadow-sm">
             <h3 class="font-extrabold text-blue-950 mb-2.5"><i class="fa-solid fa-building-columns text-blue-700 mr-1.5"></i>Subdivision-Wise Live Status</h3>
@@ -866,6 +893,7 @@ function renderDashboard() {
     var tot = all.filter(function(p){return p.section===sc.name;}).length;
     return '<div class="flex justify-between p-2 bg-slate-50 rounded border"><span><b>'+escapeHtml(sc.name)+'</b> <span class="text-slate-400">('+escapeHtml(sc.subdivision)+')</span></span><span><span class="text-red-600 font-bold mr-2">Active: '+act+'</span>Total: '+tot+'</span></div>';
   }).join("");
+ if (typeof renderPowerBiAnalytics === "function") renderPowerBiAnalytics(); 
 }
 
 function handleIssuePtwSubmit(e) {
@@ -1726,6 +1754,81 @@ function switchMainTab(t) {
       ? "px-3 py-1.5 rounded-lg bg-blue-900 text-white"
       : (id === "admin" ? "px-3 py-1.5 rounded-lg bg-purple-100 text-purple-900" : "px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700");
   });
+}
+  // PART 3: POWER BI ANALYTICS ENGINE
+function pbiMonthKey(ts) {
+  var d = new Date(Number(ts));
+  return (!ts || isNaN(d.getTime())) ? "UNKNOWN" : d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2);
+}
+function pbiMonthName(ym) {
+  var p = String(ym || "").split("-"), m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return p.length === 2 ? (m[parseInt(p[1], 10) - 1] || p[1]) + " " + p[0] : ym;
+}
+function resetPowerBiFilters() {
+  var m = document.getElementById("pbiMonthFilter"), s = document.getElementById("pbiStatusFilter");
+  if (m) m.value = "ALL"; if (s) s.value = "ALL";
+  renderPowerBiAnalytics();
+}
+function renderPowerBiAnalytics() {
+  var stBox = document.getElementById("pbiStatusChartBox");
+  if (!stBox) return;
+  var all = Object.values(ptwsMap || {});
+  var mSel = document.getElementById("pbiMonthFilter"), prevM = mSel ? mSel.value : "ALL", mSet = {};
+  all.forEach(function(p){ var k = pbiMonthKey(p.issuedAt); if (k !== "UNKNOWN") mSet[k] = 1; });
+  if (mSel) {
+    mSel.innerHTML = '<option value="ALL">All Months</option>' + Object.keys(mSet).sort().reverse().map(function(k){ return '<option value="'+k+'">'+escapeHtml(pbiMonthName(k))+'</option>'; }).join("");
+    mSel.value = (prevM === "ALL" || mSet[prevM]) ? prevM : "ALL";
+  }
+  var mf = mSel ? mSel.value : "ALL", sf = (document.getElementById("pbiStatusFilter") || {}).value || "ALL";
+  var flt = all.filter(function(p){
+    var st = String(p.status || "").toUpperCase();
+    return (mf === "ALL" || pbiMonthKey(p.issuedAt) === mf) && (sf === "ALL" || st === sf);
+  });
+  var fc = flt.length, act = 0, cls = 0, rec = 0, subMap = {}, secMap = {}, mCounts = {};
+  Object.values(subdivisionsMap || {}).forEach(function(sd){ if (sd && sd.name) subMap[sd.name] = { name: sd.name, total: 0, active: 0 }; });
+  flt.forEach(function(p){
+    var st = String(p.status || "").toUpperCase();
+    if (st === "ACTIVE") act++; else if (st === "CLOSED") cls++; else if (st === "RECOVERED") rec++;
+    var sn = p.subdivision || "Unassigned", sc = p.section || "Unassigned";
+    if (!subMap[sn]) subMap[sn] = { name: sn, total: 0, active: 0 };
+    subMap[sn].total++; if (st === "ACTIVE") subMap[sn].active++;
+    secMap[sc] = (secMap[sc] || 0) + 1;
+  });
+  all.forEach(function(p){ var k = pbiMonthKey(p.issuedAt); if (k !== "UNKNOWN") mCounts[k] = (mCounts[k] || 0) + 1; });
+  document.getElementById("pbiFilteredCount").textContent = fc;
+  document.getElementById("pbiFilteredSub").textContent = Math.round((fc / (all.length || 1)) * 100) + "% of " + all.length + " Total";
+  document.getElementById("pbiClearanceRate").textContent = (fc ? Math.round(((cls + rec) / fc) * 100) : 0) + "%";
+  document.getElementById("pbiClearanceSub").textContent = (cls + rec) + " of " + fc + " Cleared";
+  document.getElementById("pbiStatusLegendTotal").textContent = fc + " PTWs";
+  stBox.innerHTML = [
+    { l: "Active Shutdowns", c: act, bg: "bg-red-600", tx: "text-red-700" },
+    { l: "Closed (Pending Recovery)", c: cls, bg: "bg-amber-500", tx: "text-amber-700" },
+    { l: "Recovered (Complete)", c: rec, bg: "bg-emerald-600", tx: "text-emerald-700" }
+  ].map(function(x){
+    var pct = fc ? Math.round((x.c / fc) * 100) : 0;
+    return '<div><div class="flex justify-between font-bold mb-0.5"><span class="'+x.tx+'">'+x.l+'</span><span>'+x.c+' ('+pct+'%)</span></div><div class="h-2.5 bg-slate-200 rounded-full overflow-hidden"><div class="h-full '+x.bg+'" style="width:'+pct+'%"></div></div></div>';
+  }).join("");
+  var rMonths = Object.keys(mCounts).sort().slice(-6), maxM = Math.max.apply(null, rMonths.map(function(k){ return mCounts[k]; }).concat([1]));
+  document.getElementById("pbiMonthlyChartBox").innerHTML = rMonths.length ? rMonths.map(function(k){
+    var h = Math.max(10, Math.round((mCounts[k] / maxM) * 100));
+    return '<div class="flex-1 flex flex-col items-center justify-end h-full"><span class="text-[10px] font-extrabold text-blue-950 mb-1">'+mCounts[k]+'</span><div class="w-full max-w-[30px] rounded-t '+(mf===k?'bg-amber-500':'bg-blue-800')+'" style="height:'+h+'%"></div><span class="text-[10px] text-slate-600 mt-1">'+escapeHtml(pbiMonthName(k).split(" ")[0])+'</span></div>';
+  }).join("") : '<div class="w-full text-center text-slate-400 self-center">No monthly PTW data yet.</div>';
+  var subList = Object.values(subMap).sort(function(a,b){ return b.total - a.total; }), maxSub = Math.max(subList.length ? subList[0].total : 1, 1);
+  var topSub = subList.length && subList[0].total > 0 ? subList[0] : null;
+  document.getElementById("pbiTopSubdiv").textContent = topSub ? topSub.name : "No Data";
+  document.getElementById("pbiTopSubdivCount").textContent = topSub ? (topSub.total + " PTWs (" + topSub.active + " Active)") : "0 PTWs";
+  document.getElementById("pbiSubdivChartBox").innerHTML = subList.length ? subList.map(function(s){
+    var pct = Math.round((s.total / maxSub) * 100);
+    return '<div><div class="flex justify-between mb-0.5"><span class="font-bold">'+escapeHtml(s.name)+'</span><span><b class="text-red-600">'+s.active+' Act</b> / '+s.total+'</span></div><div class="h-2 bg-slate-200 rounded-full overflow-hidden"><div class="h-full bg-blue-900" style="width:'+pct+'%"></div></div></div>';
+  }).join("") : '<div class="text-slate-400 text-center py-3">No subdivision PTW data.</div>';
+  var secList = Object.keys(secMap).map(function(k){ return { name: k, count: secMap[k] }; }).sort(function(a,b){ return b.count - a.count; });
+  document.getElementById("pbiTopSection").textContent = secList.length ? secList[0].name : "No Data";
+  document.getElementById("pbiTopSectionCount").textContent = secList.length ? (secList[0].count + " PTWs") : "0 PTWs";
+  var maxSec = secList.length ? secList[0].count : 1;
+  document.getElementById("pbiSectionChartBox").innerHTML = secList.slice(0, 6).length ? secList.slice(0, 6).map(function(s, i){
+    var pct = Math.round((s.count / maxSec) * 100);
+    return '<div><div class="flex justify-between mb-0.5"><span class="font-bold">'+(i+1)+'. '+escapeHtml(s.name)+'</span><span class="font-extrabold text-indigo-800">'+s.count+'</span></div><div class="h-2 bg-slate-200 rounded-full overflow-hidden"><div class="h-full bg-indigo-600" style="width:'+pct+'%"></div></div></div>';
+  }).join("") : '<div class="text-slate-400 text-center py-3">No section PTW data.</div>';
 }
 </script>
 </body>
