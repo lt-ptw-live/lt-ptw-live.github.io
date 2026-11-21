@@ -2276,6 +2276,212 @@ function renderPowerBiAnalytics() {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
   else setup();
 })();
+  // PART 5: 100% TARGET, MOBILE LARGE POPUPS, PTW CLOSE POPUP & BROADCAST IN INSIGHTS
+(function initPart5Upgrades() {
+  // 1. Mobile Large Popup CSS
+  if (!document.getElementById("part5MobileModalCss")) {
+    var st = document.createElement("style");
+    st.id = "part5MobileModalCss";
+    st.textContent =
+      '@media (max-width: 768px) {' +
+      '  [id$="Modal"] { padding: 8px !important; align-items: center !important; justify-content: center !important; }' +
+      '  [id$="Modal"] > div { width: 96vw !important; max-width: 96vw !important; max-height: 92vh !important; overflow-y: auto !important; border-radius: 16px !important; padding: 16px !important; font-size: 14px !important; }' +
+      '  [id$="Modal"] h2, [id$="Modal"] h3 { font-size: 17px !important; line-height: 1.3 !important; }' +
+      '  [id$="Modal"] input, [id$="Modal"] select, [id$="Modal"] textarea { font-size: 16px !important; padding: 10px 12px !important; min-height: 44px !important; }' +
+      '  [id$="Modal"] button { font-size: 14px !important; padding: 9px 14px !important; min-height: 40px !important; }' +
+      '  #quickClosePtwModal .qcp-card { font-size: 13.5px !important; padding: 12px !important; }' +
+      '}';
+    document.head.appendChild(st);
+  }
+
+  function esc(s) {
+    return (typeof escapeHtml === "function")
+      ? escapeHtml(String(s == null ? "" : s))
+      : String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+          return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+        });
+  }
+
+  // 2. Get Live Broadcasting News Text
+  function getLiveBroadcastNews() {
+    var txt = "";
+    try {
+      if (typeof systemConfig !== "undefined" && systemConfig) {
+        var eb = systemConfig.emergencyBroadcast;
+        if (typeof eb === "string") txt = eb.trim();
+        else if (eb && typeof eb === "object" && eb.active !== false) {
+          txt = String(eb.message || eb.text || eb.content || "").trim();
+        }
+        if (!txt && typeof systemConfig.broadcast === "string") txt = systemConfig.broadcast.trim();
+        if (!txt && typeof systemConfig.broadcastMessage === "string") txt = systemConfig.broadcastMessage.trim();
+      }
+      if (!txt) {
+        var bEl = document.getElementById("emergencyBroadcastText") || document.getElementById("broadcastBannerText") || document.getElementById("broadcastText");
+        if (bEl && bEl.offsetParent !== null) txt = (bEl.textContent || "").trim();
+      }
+    } catch (e) {}
+    return txt;
+  }
+
+  // 3. Apply 100% Target + Broadcast News in Key Insights
+  function applyPart5DashboardTweaks() {
+    var pctEl = document.getElementById("pbiClosurePctText");
+    var pctVal = pctEl ? (parseFloat(pctEl.textContent) || 0) : 0;
+    var ring = document.getElementById("pbiRingArc");
+    if (ring) {
+      ring.setAttribute("stroke", pctVal >= 100 ? "#16a34a" : (pctVal >= 85 ? "#d97706" : "#dc2626"));
+    }
+    var tb = document.getElementById("pbiTargetBadge");
+    if (tb) {
+      tb.className = "mt-1 text-[10px] font-extrabold " + (pctVal >= 100 ? "text-emerald-700" : "text-amber-700");
+      tb.innerHTML = pctVal >= 100
+        ? 'Target 100% <i class="fa-solid fa-circle-check"></i>'
+        : 'Target 100% <i class="fa-solid fa-circle-exclamation"></i>';
+    }
+    var detBody = document.getElementById("pbiSecDetailsBody");
+    if (detBody) {
+      detBody.querySelectorAll("tr").forEach(function(tr) {
+        var lastTd = tr.lastElementChild;
+        if (lastTd && lastTd.textContent.indexOf("%") !== -1) {
+          var v = parseFloat(lastTd.textContent) || 0;
+          lastTd.classList.remove("text-emerald-700", "text-amber-700");
+          lastTd.classList.add(v >= 100 ? "text-emerald-700" : "text-amber-700");
+        }
+      });
+    }
+    var ul = document.getElementById("pbiInsightsList");
+    if (ul) {
+      ul.innerHTML = ul.innerHTML.replace(/&ge;\s*95%|≥\s*95%|95%/g, "100%");
+      var box = document.getElementById("pbiBroadcastInsightBox");
+      if (!box) {
+        box = document.createElement("div");
+        box.id = "pbiBroadcastInsightBox";
+        ul.parentElement.parentElement.insertBefore(box, ul.parentElement);
+      }
+      var news = getLiveBroadcastNews();
+      if (news) {
+        box.className = "mb-2.5 px-2.5 py-2 rounded-lg bg-amber-100 border border-amber-400 text-amber-950 text-[11px] font-extrabold shadow-sm flex items-start gap-2";
+        box.innerHTML = '<i class="fa-solid fa-bullhorn text-red-600 mt-0.5 shrink-0"></i><div><span class="inline-block bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded mr-1 align-middle">BROADCAST</span><span>' + esc(news) + '</span></div>';
+      } else {
+        box.className = "mb-2 px-2.5 py-1.5 rounded-lg bg-white/75 border border-emerald-200 text-slate-600 text-[10.5px] font-bold flex items-center gap-1.5";
+        box.innerHTML = '<i class="fa-solid fa-bullhorn text-emerald-700"></i><span>Broadcast News: No active announcement right now.</span>';
+      }
+    }
+  }
+
+  // Wrap renderPowerBiAnalytics so 100% Target & Broadcast always stay updated
+  if (typeof window.renderPowerBiAnalytics === "function" && !window.renderPowerBiAnalytics._part5Wrapped) {
+    var origPbi = window.renderPowerBiAnalytics;
+    window.renderPowerBiAnalytics = function() {
+      origPbi.apply(this, arguments);
+      applyPart5DashboardTweaks();
+    };
+    window.renderPowerBiAnalytics._part5Wrapped = true;
+  }
+
+  // 4. Create PTW CLOSE Popup Modal (Same Style as PTW ISSUE Popup)
+  function ensureQuickCloseModal() {
+    if (document.getElementById("quickClosePtwModal")) return;
+    var modal = document.createElement("div");
+    modal.id = "quickClosePtwModal";
+    modal.className = "hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3";
+    modal.innerHTML =
+      '<div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-red-200 overflow-hidden flex flex-col max-h-[90vh]">' +
+        '<div class="bg-gradient-to-r from-[#8f1d1d] to-[#dc2626] text-white px-4 py-3 flex items-center justify-between gap-2">' +
+          '<div class="flex items-center gap-2 font-extrabold text-sm sm:text-base"><i class="fa-solid fa-lock"></i> PTW CLOSE – Active Shutdowns</div>' +
+          '<button type="button" onclick="closeQuickClosePtwModal()" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white font-black flex items-center justify-center">&times;</button>' +
+        '</div>' +
+        '<div class="p-3 bg-slate-50 border-b border-slate-200">' +
+          '<input id="quickCloseSearchInput" type="text" oninput="renderQuickClosePtwList()" placeholder="Search by 6-Digit PTW Code, Section, Feeder, or Lineman..." class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500" />' +
+        '</div>' +
+        '<div id="quickClosePtwList" class="p-3 space-y-2.5 overflow-y-auto flex-1 bg-white"></div>' +
+        '<div class="px-4 py-2.5 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">' +
+          '<button type="button" onclick="openFullPtwRegisterFromPopup()" class="text-blue-800 hover:underline font-extrabold"><i class="fa-solid fa-table-list mr-1"></i>Open Full PTW Register</button>' +
+          '<button type="button" onclick="closeQuickClosePtwModal()" class="px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-800 text-white font-bold">Cancel</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+  }
+
+  window.closeQuickClosePtwModal = function() {
+    var m = document.getElementById("quickClosePtwModal");
+    if (m) m.classList.add("hidden");
+  };
+
+  window.launchCloseFromQuickPopup = function(id) {
+    window.closeQuickClosePtwModal();
+    var cm = document.getElementById("closePtwModal");
+    if (cm) cm.style.zIndex = "70";
+    if (typeof openCloseModal === "function") openCloseModal(id);
+  };
+
+  window.renderQuickClosePtwList = function() {
+    var box = document.getElementById("quickClosePtwList");
+    if (!box) return;
+    var q = ((document.getElementById("quickCloseSearchInput") || {}).value || "").trim().toLowerCase();
+    var activeList = Object.values(ptwsMap || {}).filter(function(p) {
+      return p && String(p.status || "").toUpperCase() === "ACTIVE";
+    }).sort(function(a, b) {
+      return (Number(b.issuedAt || 0) - Number(a.issuedAt || 0));
+    }).filter(function(p) {
+      if (!q) return true;
+      var hay = [p.ptwCode, p.section, p.subdivision, p.feeder, p.substation, p.issuerName, p.receiverName].join(" ").toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+
+    if (!activeList.length) {
+      box.innerHTML = '<div class="text-center py-8 text-emerald-700 font-extrabold text-sm bg-emerald-50 rounded-xl border border-emerald-200"><i class="fa-solid fa-circle-check text-2xl block mb-1"></i>No Active PTWs pending for closure!</div>';
+      return;
+    }
+
+    box.innerHTML = activeList.map(function(p) {
+      var orig = (typeof isOriginalIssuer === "function") && isOriginalIssuer(p);
+      var sa = (typeof isSuperAdmin === "function") && isSuperAdmin();
+      var btnHtml = orig
+        ? '<button type="button" onclick="launchCloseFromQuickPopup(\'' + esc(p.id) + '\')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shrink-0 shadow"><i class="fa-solid fa-check-double mr-1"></i>Close PTW</button>'
+        : (sa
+          ? '<button type="button" onclick="launchCloseFromQuickPopup(\'' + esc(p.id) + '\')" class="px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-xs shrink-0 shadow"><i class="fa-solid fa-shield-halved mr-1"></i>Admin Close</button>'
+          : '<button type="button" onclick="launchCloseFromQuickPopup(\'' + esc(p.id) + '\')" class="px-3 py-2 rounded-xl bg-slate-200 text-slate-500 font-bold text-xs shrink-0"><i class="fa-solid fa-lock mr-1"></i>Issuer Only</button>');
+      return '<div class="qcp-card border border-slate-200 hover:border-red-300 rounded-xl p-3 bg-slate-50/70 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">' +
+        '<div class="min-w-0 space-y-0.5 text-xs">' +
+          '<div class="flex flex-wrap items-center gap-1.5">' +
+            '<span class="font-mono font-black text-sm text-blue-900 bg-blue-100 px-2 py-0.5 rounded">#' + esc(p.ptwCode) + '</span>' +
+            '<span class="font-extrabold text-slate-900">' + esc(p.section || "-") + '</span>' +
+            '<span class="text-slate-500 font-semibold">(' + esc(p.feeder || "-") + ')</span>' +
+          '</div>' +
+          '<div class="text-slate-700"><b>Issuer:</b> ' + esc(p.issuerName || "-") + (orig ? ' <span class="bg-blue-100 text-blue-800 text-[10px] px-1.5 py-0.5 rounded font-black">YOU</span>' : '') + ' &bull; <b>Lineman:</b> ' + esc(p.receiverName || "-") + '</div>' +
+          '<div class="text-[11px] text-slate-500"><i class="fa-regular fa-clock mr-1"></i>Issued: ' + esc(p.issuedTimeFormatted || "-") + '</div>' +
+        '</div>' +
+        btnHtml +
+      '</div>';
+    }).join("");
+  };
+
+  // Override openPtwCloseView so PTW CLOSE button opens this Popup!
+  var origOpenCloseView = window.openPtwCloseView;
+  window.openFullPtwRegisterFromPopup = function() {
+    window.closeQuickClosePtwModal();
+    if (typeof origOpenCloseView === "function") origOpenCloseView();
+  };
+  window.openPtwCloseView = function() {
+    ensureQuickCloseModal();
+    var inp = document.getElementById("quickCloseSearchInput");
+    if (inp) inp.value = "";
+    window.renderQuickClosePtwList();
+    document.getElementById("quickClosePtwModal").classList.remove("hidden");
+  };
+
+  // Run tweaks on load & keep Broadcast News live-synced
+  setTimeout(applyPart5DashboardTweaks, 400);
+  var lastNewsSeen = null;
+  setInterval(function() {
+    var cur = getLiveBroadcastNews();
+    if (cur !== lastNewsSeen) {
+      lastNewsSeen = cur;
+      applyPart5DashboardTweaks();
+    }
+  }, 2500);
+})();
 </script>
 </body>
 </html>
