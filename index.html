@@ -3442,6 +3442,222 @@ function renderPowerBiAnalytics() {
     window.renderPowerBiAnalytics();
   }, 600);
 })();
+  // PART 8: UNIVERSAL SUBDIVISION & SECTION FILTER ACROSS ALL TABS
+(function initPart8UniversalSectionFilter() {
+  function esc(s) {
+    return (typeof escapeHtml === "function")
+      ? escapeHtml(String(s == null ? "" : s))
+      : String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+          return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+        });
+  }
+
+  function getCatalog() {
+    var subCanon = {}, secCanon = {}, subById = {}, secToSub = {};
+    var subsObj = (typeof subdivisionsMap !== "undefined" && subdivisionsMap) ? subdivisionsMap : {};
+    var secsObj = (typeof sectionsMap !== "undefined" && sectionsMap) ? sectionsMap : {};
+    var ptwsObj = (typeof ptwsMap !== "undefined" && ptwsMap) ? ptwsMap : {};
+
+    Object.keys(subsObj).forEach(function(id) {
+      var o = subsObj[id];
+      if (o && o.name) {
+        var c = String(o.name).trim();
+        if (c) { subCanon[c.toUpperCase()] = c; subById[id] = c; }
+      }
+    });
+    Object.values(secsObj).forEach(function(o) {
+      if (!o || !o.name) return;
+      var sc = String(o.name).trim();
+      if (!sc) return;
+      secCanon[sc.toUpperCase()] = sc;
+      var sr = o.subdivision || o.subdivisionName || o.subdiv || (o.subdivisionId ? subById[o.subdivisionId] : "");
+      if (sr) {
+        var srClean = String(sr).trim();
+        subCanon[srClean.toUpperCase()] = subCanon[srClean.toUpperCase()] || srClean;
+        secToSub[sc.toUpperCase()] = subCanon[srClean.toUpperCase()];
+      }
+    });
+    Object.values(ptwsObj).forEach(function(p) {
+      if (!p) return;
+      var sb = String(p.subdivision || "").trim();
+      var sc = String(p.section || "").trim();
+      if (sb) subCanon[sb.toUpperCase()] = subCanon[sb.toUpperCase()] || sb;
+      if (sc) secCanon[sc.toUpperCase()] = secCanon[sc.toUpperCase()] || sc;
+      if (sb && sc && !secToSub[sc.toUpperCase()]) {
+        secToSub[sc.toUpperCase()] = subCanon[sb.toUpperCase()];
+      }
+    });
+
+    return {
+      subdivisions: Object.values(subCanon).sort(),
+      sections: Object.values(secCanon).sort(),
+      secToSub: secToSub
+    };
+  }
+
+  function getPtwByCodeMap() {
+    var byCode = {};
+    var ptwsObj = (typeof ptwsMap !== "undefined" && ptwsMap) ? ptwsMap : {};
+    Object.values(ptwsObj).forEach(function(p) {
+      if (p && p.ptwCode) byCode[String(p.ptwCode).trim().toUpperCase()] = p;
+    });
+    return byCode;
+  }
+
+  function matchElement(el, subVal, secVal, byCode, cat) {
+    if (subVal === "ALL" && secVal === "ALL") return true;
+    var text = (el.textContent || "").toUpperCase();
+    var codes = text.match(/\b\d{5,6}\b/g) || [];
+    for (var i = 0; i < codes.length; i++) {
+      if (byCode[codes[i]]) {
+        var p = byCode[codes[i]];
+        var pSub = String(p.subdivision || "").trim().toUpperCase();
+        var pSec = String(p.section || "").trim().toUpperCase();
+        var okSub = (subVal === "ALL") || (pSub === subVal.toUpperCase());
+        var okSec = (secVal === "ALL") || (pSec === secVal.toUpperCase());
+        return okSub && okSec;
+      }
+    }
+    if (secVal !== "ALL" && text.indexOf(secVal.toUpperCase()) === -1) return false;
+    if (subVal !== "ALL") {
+      if (text.indexOf(subVal.toUpperCase()) !== -1) return true;
+      var anySecMatch = cat.sections.some(function(sc) {
+        var ps = cat.secToSub[sc.toUpperCase()];
+        return ps && ps.toUpperCase() === subVal.toUpperCase() && text.indexOf(sc.toUpperCase()) !== -1;
+      });
+      if (!anySecMatch) return false;
+    }
+    return true;
+  }
+
+  function populateDropdowns(subSel, secSel, force) {
+    var cat = getCatalog();
+    var prevSub = subSel.value || "ALL";
+    var prevSec = secSel.value || "ALL";
+    var curSub = (prevSub === "ALL" || cat.subdivisions.indexOf(prevSub) !== -1) ? prevSub : "ALL";
+    var visSecs = (curSub === "ALL") ? cat.sections : cat.sections.filter(function(sc) {
+      var ps = cat.secToSub[sc.toUpperCase()];
+      return ps && ps.toUpperCase() === curSub.toUpperCase();
+    });
+    if (curSub !== "ALL" && !visSecs.length) visSecs = cat.sections;
+
+    var sig = cat.subdivisions.join("|") + "||" + curSub + "||" + visSecs.join("|");
+    if (!force && subSel.dataset.sig === sig) return cat;
+    subSel.dataset.sig = sig;
+
+    subSel.innerHTML = '<option value="ALL">All Subdivisions</option>' +
+      cat.subdivisions.map(function(n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join("");
+    subSel.value = curSub;
+
+    secSel.innerHTML = '<option value="ALL">All Sections</option>' +
+      visSecs.map(function(n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join("");
+    secSel.value = (prevSec === "ALL" || visSecs.indexOf(prevSec) !== -1) ? prevSec : "ALL";
+    return cat;
+  }
+
+  function attachFilterToContainer(secEl, barId, targetEl, itemSelector, insertBeforeEl) {
+    if (!secEl || !targetEl || document.getElementById(barId)) return;
+
+    var bar = document.createElement("div");
+    bar.id = barId;
+    bar.className = "flex flex-wrap items-center gap-2 text-xs bg-blue-50/80 border border-blue-200 rounded-xl px-3 py-2 my-2 no-print";
+    bar.innerHTML =
+      '<span class="font-extrabold text-[#0b3c8a] flex items-center gap-1"><i class="fa-solid fa-filter text-blue-600"></i>Section Filter:</span>' +
+      '<select class="uSubSel border border-blue-200 rounded-lg px-2.5 py-1 font-bold bg-white text-blue-950"><option value="ALL">All Subdivisions</option></select>' +
+      '<select class="uSecSel border border-blue-200 rounded-lg px-2.5 py-1 font-bold bg-white text-blue-950"><option value="ALL">All Sections</option></select>' +
+      '<button type="button" class="uResetBtn px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 font-bold text-slate-700">Reset</button>' +
+      '<span class="uCountBadge ml-auto text-[11px] font-extrabold text-blue-900"></span>';
+
+    if (insertBeforeEl && insertBeforeEl.parentNode) {
+      insertBeforeEl.parentNode.insertBefore(bar, insertBeforeEl);
+    } else {
+      secEl.insertBefore(bar, secEl.firstChild);
+    }
+
+    var subSel = bar.querySelector(".uSubSel");
+    var secSel = bar.querySelector(".uSecSel");
+    var resetBtn = bar.querySelector(".uResetBtn");
+    var badge = bar.querySelector(".uCountBadge");
+
+    function applyFilter() {
+      var cat = getCatalog();
+      var subVal = subSel.value || "ALL";
+      var secVal = secSel.value || "ALL";
+      var byCode = getPtwByCodeMap();
+      var items = itemSelector ? targetEl.querySelectorAll(itemSelector) : Array.prototype.slice.call(targetEl.children);
+      var shown = 0, total = 0;
+
+      Array.prototype.forEach.call(items, function(item) {
+        if (item.tagName === "TR" && item.children.length === 1 && item.children[0].colSpan > 1) {
+          item.style.display = "";
+          return;
+        }
+        total++;
+        var ok = matchElement(item, subVal, secVal, byCode, cat);
+        item.style.display = ok ? "" : "none";
+        if (ok) shown++;
+      });
+
+      if (badge) {
+        badge.textContent = (subVal === "ALL" && secVal === "ALL")
+          ? ""
+          : ("Showing " + shown + " of " + total);
+      }
+    }
+
+    subSel.onchange = function() { populateDropdowns(subSel, secSel, true); applyFilter(); };
+    secSel.onchange = function() { applyFilter(); };
+    resetBtn.onclick = function() {
+      subSel.value = "ALL";
+      populateDropdowns(subSel, secSel, true);
+      secSel.value = "ALL";
+      applyFilter();
+    };
+
+    populateDropdowns(subSel, secSel, true);
+    applyFilter();
+
+    var obs = new MutationObserver(function() {
+      populateDropdowns(subSel, secSel, false);
+      applyFilter();
+    });
+    obs.observe(targetEl, { childList: true });
+
+    bar._refreshCatalog = function() { populateDropdowns(subSel, secSel, false); applyFilter(); };
+  }
+
+  function setupAllTabs() {
+    var ptwSec = document.getElementById("sec_ptwList");
+    var ptwTbody = document.getElementById("ptwTableBody");
+    if (ptwSec && ptwTbody) {
+      attachFilterToContainer(ptwSec, "uFilter_ptwList", ptwTbody, "tr", ptwTbody.closest("div"));
+    }
+
+    var recSec = document.getElementById("sec_recovery");
+    var recList = document.getElementById("pendingRecoveryListContainer");
+    if (recSec && recList) {
+      attachFilterToContainer(recSec, "uFilter_recovery", recList, null, recList);
+    }
+
+    document.querySelectorAll('section[id^="sec_"]').forEach(function(secEl) {
+      if (secEl.id === "sec_dashboard" || secEl.id === "sec_ptwList" || secEl.id === "sec_recovery") return;
+      var tbody = secEl.querySelector("tbody");
+      if (!tbody) return;
+      var tableWrap = tbody.closest("div") || tbody.closest("table");
+      attachFilterToContainer(secEl, "uFilter_" + secEl.id, tbody, "tr", tableWrap);
+    });
+  }
+
+  setTimeout(setupAllTabs, 700);
+  var ticks = 0;
+  var t = setInterval(function() {
+    setupAllTabs();
+    document.querySelectorAll('[id^="uFilter_"]').forEach(function(b) {
+      if (typeof b._refreshCatalog === "function") b._refreshCatalog();
+    });
+    if (++ticks >= 10) clearInterval(t);
+  }, 1500);
+})();
 </script>
 </body>
 </html>
