@@ -2482,6 +2482,474 @@ function renderPowerBiAnalytics() {
     }
   }, 2500);
 })();
+  // PART 6: DAY-WISE & MONTH-WISE STATISTICAL REPORT UPGRADE
+(function initPart6DayWiseStats() {
+  var trendMode = "MONTH"; // "MONTH" or "DAY"
+
+  function pad2(n) { return n < 10 ? "0" + n : String(n); }
+  function esc(s) {
+    return (typeof escapeHtml === "function")
+      ? escapeHtml(String(s == null ? "" : s))
+      : String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+          return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+        });
+  }
+  function mKey(ts) {
+    var d = new Date(Number(ts));
+    return (!ts || isNaN(d.getTime())) ? "UNKNOWN" : d.getFullYear() + "-" + pad2(d.getMonth() + 1);
+  }
+  function dKey(ts) {
+    var d = new Date(Number(ts));
+    return (!ts || isNaN(d.getTime())) ? "UNKNOWN" : d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+  function todayKey() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+  function mFull(ym) {
+    var p = String(ym || "").split("-"), m = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    return p.length === 2 ? (m[parseInt(p[1], 10) - 1] || p[1]) + " " + p[0] : ym;
+  }
+  function mShort(ym) {
+    var p = String(ym || "").split("-"), m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return p.length === 2 ? (m[parseInt(p[1], 10) - 1] || p[1]) + "-" + p[0].slice(-2) : ym;
+  }
+  function dFull(ymd) {
+    var p = String(ymd || "").split("-"), m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return p.length === 3 ? p[2] + " " + (m[parseInt(p[1], 10) - 1] || p[1]) + " " + p[0] : ymd;
+  }
+  function dShort(ymd) {
+    var p = String(ymd || "").split("-"), m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return p.length === 3 ? p[2] + " " + (m[parseInt(p[1], 10) - 1] || p[1]) : ymd;
+  }
+  function prevMKey(ym) {
+    var p = String(ym || "").split("-");
+    if (p.length !== 2) return null;
+    var y = parseInt(p[0], 10), mo = parseInt(p[1], 10) - 1;
+    if (mo < 1) { mo = 12; y -= 1; }
+    return y + "-" + pad2(mo);
+  }
+  function prevDKey(ymd) {
+    var p = String(ymd || "").split("-");
+    if (p.length !== 3) return null;
+    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10) - 1);
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+  function canonMap(obj) {
+    var map = {};
+    Object.values(obj || {}).forEach(function(item) {
+      if (item && item.name) {
+        var c = String(item.name).trim();
+        if (c) map[c.toUpperCase()] = c;
+      }
+    });
+    return map;
+  }
+  function cleanName(raw, map) {
+    var s = String(raw || "").trim();
+    if (!s) return "Unassigned";
+    var k = s.toUpperCase();
+    if (map[k]) return map[k];
+    map[k] = s;
+    return s;
+  }
+  function avgHrsCalc(list) {
+    var sumMs = 0, cnt = 0;
+    list.forEach(function(p) {
+      var st = String(p.status || "").toUpperCase();
+      if (st === "CLOSED" || st === "RECOVERED") {
+        var s = Number(p.issuedAt || p.createdAt), e = Number(p.closedAt || p.recoveredAt);
+        if (s && e && e > s && (e - s) < 30 * 24 * 3600 * 1000) { sumMs += (e - s); cnt++; }
+      }
+    });
+    return cnt ? (sumMs / cnt / 3600000) : 0;
+  }
+
+  // Inject Date Picker, Today Button & Chart Month/Day Switch
+  function ensureDayControls() {
+    var mSel = document.getElementById("pbiMonthFilter");
+    if (mSel && !document.getElementById("pbiDateFilter")) {
+      var dateInp = document.createElement("input");
+      dateInp.type = "date";
+      dateInp.id = "pbiDateFilter";
+      dateInp.title = "Day-Wise Report Date";
+      dateInp.className = "border border-blue-200 rounded-lg px-2 py-1 font-bold bg-slate-50 text-blue-950";
+      dateInp.onchange = function() {
+        if (dateInp.value) {
+          trendMode = "DAY";
+          var ym = dateInp.value.slice(0, 7);
+          if (mSel && mSel.querySelector('option[value="' + ym + '"]')) mSel.value = ym;
+        }
+        window.renderPowerBiAnalytics();
+      };
+
+      var todayBtn = document.createElement("button");
+      todayBtn.type = "button";
+      todayBtn.id = "pbiTodayBtn";
+      todayBtn.className = "px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold";
+      todayBtn.innerHTML = '<i class="fa-solid fa-calendar-day mr-1"></i>Today';
+      todayBtn.onclick = function() {
+        dateInp.value = todayKey();
+        trendMode = "DAY";
+        var ym = dateInp.value.slice(0, 7);
+        if (mSel && mSel.querySelector('option[value="' + ym + '"]')) mSel.value = ym;
+        window.renderPowerBiAnalytics();
+      };
+
+      mSel.insertAdjacentElement("afterend", todayBtn);
+      mSel.insertAdjacentElement("afterend", dateInp);
+
+      mSel.onchange = function() {
+        dateInp.value = "";
+        window.renderPowerBiAnalytics();
+      };
+    }
+
+    var chartBox = document.getElementById("pbiMonthlyChartBox");
+    var headerEl = chartBox && chartBox.parentElement ? chartBox.parentElement.previousElementSibling : null;
+    if (headerEl && !document.getElementById("pbiTrendTitle")) {
+      headerEl.className = "bg-[#0f4593] text-white px-3 py-1.5 font-extrabold text-xs flex items-center justify-between gap-2";
+      headerEl.innerHTML =
+        '<span id="pbiTrendTitle">PTW Trend – Monthly Comparison</span>' +
+        '<div class="inline-flex bg-[#07265c] rounded-lg p-0.5 text-[10px] font-extrabold no-print">' +
+          '<button type="button" id="pbiModeMonthBtn" onclick="setPbiTrendMode(\'MONTH\')" class="px-2 py-0.5 rounded-md bg-white text-[#0b3c8a]">Month</button>' +
+          '<button type="button" id="pbiModeDayBtn" onclick="setPbiTrendMode(\'DAY\')" class="px-2 py-0.5 rounded-md text-sky-200 hover:text-white">Day</button>' +
+        '</div>';
+    }
+  }
+
+  window.setPbiTrendMode = function(mode) {
+    trendMode = (mode === "DAY") ? "DAY" : "MONTH";
+    window.renderPowerBiAnalytics();
+  };
+
+  window.selectPbiDayFromChart = function(ymd) {
+    ensureDayControls();
+    var dInp = document.getElementById("pbiDateFilter");
+    if (dInp) {
+      dInp.value = (dInp.value === ymd) ? "" : ymd;
+      trendMode = "DAY";
+    }
+    window.renderPowerBiAnalytics();
+  };
+
+  window.selectPbiMonthFromChart = function(ym) {
+    ensureDayControls();
+    var mSel = document.getElementById("pbiMonthFilter");
+    var dInp = document.getElementById("pbiDateFilter");
+    if (dInp) dInp.value = "";
+    if (mSel && mSel.querySelector('option[value="' + ym + '"]')) {
+      mSel.value = (mSel.value === ym) ? "ALL" : ym;
+    }
+    window.renderPowerBiAnalytics();
+  };
+
+  window.resetPowerBiFilters = function() {
+    var m = document.getElementById("pbiMonthFilter");
+    var d = document.getElementById("pbiDateFilter");
+    var sd = document.getElementById("pbiSubdivFilter");
+    if (m) m.value = "ALL";
+    if (d) d.value = "";
+    if (sd) sd.value = "ALL";
+    trendMode = "MONTH";
+    window.renderPowerBiAnalytics();
+  };
+
+  window.renderPowerBiAnalytics = function() {
+    if (!document.getElementById("tpcodlMisBoard")) return;
+    ensureDayControls();
+
+    var all = Object.values(ptwsMap || {});
+    var subC = canonMap(subdivisionsMap), secC = canonMap(sectionsMap);
+
+    var mSel = document.getElementById("pbiMonthFilter"), prevM = mSel ? mSel.value : "ALL", mSet = {};
+    var sdSel = document.getElementById("pbiSubdivFilter"), prevSd = sdSel ? sdSel.value : "ALL", sdSet = {};
+    var dInp = document.getElementById("pbiDateFilter"), df = dInp ? dInp.value : "";
+
+    Object.values(subC).forEach(function(n) { sdSet[n] = 1; });
+    all.forEach(function(p) {
+      var k = mKey(p.issuedAt || p.createdAt);
+      if (k !== "UNKNOWN") mSet[k] = 1;
+      var sn = cleanName(p.subdivision, subC);
+      if (sn !== "Unassigned") sdSet[sn] = 1;
+    });
+
+    if (mSel) {
+      mSel.innerHTML = '<option value="ALL">All Months</option>' + Object.keys(mSet).sort().reverse().map(function(k) {
+        return '<option value="' + k + '">' + esc(mFull(k)) + '</option>';
+      }).join("");
+      mSel.value = (prevM === "ALL" || mSet[prevM]) ? prevM : "ALL";
+    }
+    if (sdSel) {
+      sdSel.innerHTML = '<option value="ALL">All Subdivisions</option>' + Object.keys(sdSet).sort().map(function(n) {
+        return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+      }).join("");
+      sdSel.value = (prevSd === "ALL" || sdSet[prevSd]) ? prevSd : "ALL";
+    }
+
+    var mf = mSel ? mSel.value : "ALL", sdf = sdSel ? sdSel.value : "ALL";
+    var isDayFilter = !!df;
+
+    // Update Banner Title & Subtitle
+    var lblEl = document.getElementById("pbiReportMonthLabel");
+    if (lblEl) {
+      var mainTitleEl = lblEl.previousElementSibling;
+      if (mainTitleEl) {
+        mainTitleEl.textContent = isDayFilter ? "PTW – Daily Statistical Report" : "PTW – Monthly Statistical Report";
+      }
+      var periodTxt = isDayFilter
+        ? ("For the Date : " + dFull(df))
+        : ("For the Month : " + (mf === "ALL" ? "All Months" : mFull(mf)));
+      lblEl.textContent = "(" + periodTxt + (sdf === "ALL" ? "" : " • " + sdf) + ")";
+    }
+
+    // Filter PTWs
+    var bySubdiv = all.filter(function(p) {
+      return sdf === "ALL" || cleanName(p.subdivision, subC).toUpperCase() === sdf.toUpperCase();
+    });
+    var flt = bySubdiv.filter(function(p) {
+      if (isDayFilter) return dKey(p.issuedAt || p.createdAt) === df;
+      return mf === "ALL" || mKey(p.issuedAt || p.createdAt) === mf;
+    });
+
+    var issued = flt.length, closed = 0, pending = 0, secStats = {};
+    flt.forEach(function(p) {
+      var st = String(p.status || "").toUpperCase();
+      var done = (st === "CLOSED" || st === "RECOVERED");
+      if (done) closed++; else pending++;
+      var sc = cleanName(p.section, secC);
+      if (!secStats[sc]) secStats[sc] = { name: sc, issued: 0, closed: 0, pending: 0 };
+      secStats[sc].issued++;
+      if (done) secStats[sc].closed++; else secStats[sc].pending++;
+    });
+
+    var closurePct = issued ? (closed / issued) * 100 : 0;
+    var avgHrs = avgHrsCalc(flt);
+
+    // Previous Period Comparison (Previous Day if date selected, else Previous Month)
+    var prevKey = isDayFilter ? prevDKey(df) : (mf !== "ALL" ? prevMKey(mf) : null);
+    var prevLabel = prevKey ? (isDayFilter ? dShort(prevKey) : mShort(prevKey)) : "";
+    var prevList = prevKey ? bySubdiv.filter(function(p) {
+      return isDayFilter ? (dKey(p.issuedAt || p.createdAt) === prevKey) : (mKey(p.issuedAt || p.createdAt) === prevKey);
+    }) : [];
+    var prevIssued = prevList.length;
+    var prevClosed = prevList.filter(function(p) { var s = String(p.status || "").toUpperCase(); return s === "CLOSED" || s === "RECOVERED"; }).length;
+    var prevPending = prevIssued - prevClosed;
+    var prevAvg = avgHrsCalc(prevList);
+
+    function pctDelta(cur, prv) {
+      if (!prevKey || !prv) return "";
+      var diff = Math.round(((cur - prv) / prv) * 100);
+      return (diff >= 0 ? "▲ +" : "▼ ") + diff + "%";
+    }
+
+    document.getElementById("pbiIssuedCount").textContent = issued.toLocaleString("en-IN");
+    document.getElementById("pbiIssuedDelta").textContent = pctDelta(issued, prevIssued);
+    document.getElementById("pbiIssuedPrev").textContent = prevKey ? ("(vs. " + prevIssued + " on " + prevLabel + ")") : "All recorded PTWs";
+
+    document.getElementById("pbiClosedCount").textContent = closed.toLocaleString("en-IN");
+    document.getElementById("pbiClosedDelta").textContent = pctDelta(closed, prevClosed);
+    document.getElementById("pbiClosedPrev").textContent = prevKey ? ("(vs. " + prevClosed + " on " + prevLabel + ")") : "Closed + Recovered";
+
+    var pctLabel = issued ? (closurePct % 1 === 0 ? closurePct.toFixed(0) : closurePct.toFixed(1)) + "%" : "0%";
+    document.getElementById("pbiClosurePctText").textContent = pctLabel;
+    var ring = document.getElementById("pbiRingArc");
+    if (ring) {
+      var circ = 201.06;
+      ring.setAttribute("stroke-dashoffset", (circ * (1 - Math.min(100, closurePct) / 100)).toFixed(2));
+      ring.setAttribute("stroke", closurePct >= 100 ? "#16a34a" : (closurePct >= 85 ? "#d97706" : "#dc2626"));
+    }
+    var tb = document.getElementById("pbiTargetBadge");
+    if (tb) {
+      tb.className = "mt-1 text-[10px] font-extrabold " + (closurePct >= 100 ? "text-emerald-700" : "text-amber-700");
+      tb.innerHTML = closurePct >= 100
+        ? 'Target 100% <i class="fa-solid fa-circle-check"></i>'
+        : 'Target 100% <i class="fa-solid fa-circle-exclamation"></i>';
+    }
+
+    document.getElementById("pbiAvgTime").textContent = avgHrs.toFixed(1) + " Hrs";
+    var timeDiff = (prevKey && prevAvg > 0) ? (avgHrs - prevAvg) : null;
+    var tdEl = document.getElementById("pbiAvgTimeDelta");
+    if (tdEl) {
+      if (timeDiff !== null) {
+        tdEl.textContent = (timeDiff <= 0 ? "▼ " : "▲ +") + timeDiff.toFixed(1) + " Hrs";
+        tdEl.className = "text-[10px] font-extrabold " + (timeDiff <= 0 ? "text-emerald-600" : "text-red-600");
+      } else tdEl.textContent = "";
+    }
+    document.getElementById("pbiAvgTimePrev").textContent = (prevKey && prevAvg > 0) ? ("(vs. " + prevAvg.toFixed(1) + " Hrs on " + prevLabel + ")") : "Issue to Close avg";
+
+    document.getElementById("pbiPendingCount").textContent = pad2(pending);
+    var pDiff = prevKey ? (pending - prevPending) : null;
+    var pdEl = document.getElementById("pbiPendingDelta");
+    if (pdEl) {
+      if (pDiff !== null && prevIssued > 0) {
+        pdEl.textContent = (pDiff <= 0 ? "▼ " : "▲ +") + pDiff;
+        pdEl.className = "text-[11px] font-extrabold " + (pDiff <= 0 ? "text-emerald-600" : "text-red-600");
+      } else pdEl.textContent = "";
+    }
+    document.getElementById("pbiPendingAsOn").textContent = isDayFilter
+      ? ("(on " + dFull(df) + ")")
+      : ("(as on " + new Date().toLocaleDateString("en-GB").replace(/\//g, ".") + ")");
+
+    // Panel 1: Trend Chart (Monthly OR Day-Wise)
+    var showDayChart = (trendMode === "DAY");
+    var tTitle = document.getElementById("pbiTrendTitle");
+    var mBtn = document.getElementById("pbiModeMonthBtn");
+    var dBtn = document.getElementById("pbiModeDayBtn");
+    if (tTitle) tTitle.textContent = showDayChart ? "PTW Trend – Day-Wise Comparison" : "PTW Trend – Monthly Comparison";
+    if (mBtn && dBtn) {
+      mBtn.className = "px-2 py-0.5 rounded-md " + (!showDayChart ? "bg-white text-[#0b3c8a]" : "text-sky-200 hover:text-white");
+      dBtn.className = "px-2 py-0.5 rounded-md " + (showDayChart ? "bg-white text-[#0b3c8a]" : "text-sky-200 hover:text-white");
+    }
+
+    var chartBox = document.getElementById("pbiMonthlyChartBox");
+    if (showDayChart) {
+      var dayPool = bySubdiv.filter(function(p) {
+        var targetMonth = isDayFilter ? df.slice(0, 7) : mf;
+        return targetMonth === "ALL" || mKey(p.issuedAt || p.createdAt) === targetMonth;
+      });
+      var dAgg = {};
+      dayPool.forEach(function(p) {
+        var k = dKey(p.issuedAt || p.createdAt);
+        if (k === "UNKNOWN") return;
+        if (!dAgg[k]) dAgg[k] = { issued: 0, closed: 0 };
+        dAgg[k].issued++;
+        var s = String(p.status || "").toUpperCase();
+        if (s === "CLOSED" || s === "RECOVERED") dAgg[k].closed++;
+      });
+      if (isDayFilter && !dAgg[df]) dAgg[df] = { issued: 0, closed: 0 };
+      var dKeys = Object.keys(dAgg).sort().slice(-7);
+      var maxD = Math.max.apply(null, dKeys.map(function(k) { return dAgg[k].issued; }).concat([1]));
+      chartBox.innerHTML = dKeys.length ? dKeys.map(function(k) {
+        var row = dAgg[k];
+        var hi = row.issued ? Math.max(8, Math.round((row.issued / maxD) * 100)) : 2;
+        var hc = row.closed ? Math.max(8, Math.round((row.closed / maxD) * 100)) : 2;
+        var activeCls = (df === k) ? " ring-2 ring-amber-400 bg-amber-50/70 rounded-lg px-1" : "";
+        return '<div onclick="selectPbiDayFromChart(\'' + k + '\')" title="Click for ' + esc(dFull(k)) + ' report" class="cursor-pointer flex-1 flex flex-col items-center justify-end h-full transition hover:bg-blue-50/70 rounded' + activeCls + '">' +
+          '<div class="flex items-end justify-center gap-1 w-full h-32">' +
+            '<div class="flex flex-col items-center justify-end h-full w-4 sm:w-6">' +
+              '<span class="text-[9px] font-extrabold text-slate-800 mb-0.5">' + row.issued + '</span>' +
+              '<div class="w-full rounded-t bg-[#1d84e8]" style="height:' + hi + '%"></div>' +
+            '</div>' +
+            '<div class="flex flex-col items-center justify-end h-full w-4 sm:w-6">' +
+              '<span class="text-[9px] font-extrabold text-slate-800 mb-0.5">' + row.closed + '</span>' +
+              '<div class="w-full rounded-t bg-[#22b14c]" style="height:' + hc + '%"></div>' +
+            '</div>' +
+          '</div>' +
+          '<span class="text-[9.5px] font-extrabold mt-1.5 ' + (df === k ? 'text-[#0b3c8a]' : 'text-slate-700') + '">' + esc(dShort(k)) + '</span>' +
+        '</div>';
+      }).join("") : '<div class="w-full text-center text-slate-400 self-center font-semibold">No day-wise PTW data yet.</div>';
+    } else {
+      var mAgg = {};
+      bySubdiv.forEach(function(p) {
+        var k = mKey(p.issuedAt || p.createdAt);
+        if (k === "UNKNOWN") return;
+        if (!mAgg[k]) mAgg[k] = { issued: 0, closed: 0 };
+        mAgg[k].issued++;
+        var s = String(p.status || "").toUpperCase();
+        if (s === "CLOSED" || s === "RECOVERED") mAgg[k].closed++;
+      });
+      var mKeys = Object.keys(mAgg).sort().slice(-5);
+      var maxM = Math.max.apply(null, mKeys.map(function(k) { return mAgg[k].issued; }).concat([1]));
+      chartBox.innerHTML = mKeys.length ? mKeys.map(function(k) {
+        var row = mAgg[k];
+        var hi = Math.max(8, Math.round((row.issued / maxM) * 100));
+        var hc = row.closed ? Math.max(8, Math.round((row.closed / maxM) * 100)) : 2;
+        var activeCls = (mf === k && !isDayFilter) ? " ring-2 ring-amber-400 bg-amber-50/70 rounded-lg px-1" : "";
+        return '<div onclick="selectPbiMonthFromChart(\'' + k + '\')" title="Click for ' + esc(mFull(k)) + ' report" class="cursor-pointer flex-1 flex flex-col items-center justify-end h-full transition hover:bg-blue-50/70 rounded' + activeCls + '">' +
+          '<div class="flex items-end justify-center gap-1.5 w-full h-32">' +
+            '<div class="flex flex-col items-center justify-end h-full w-6 sm:w-8">' +
+              '<span class="text-[10px] font-extrabold text-slate-800 mb-0.5">' + row.issued + '</span>' +
+              '<div class="w-full rounded-t-md bg-[#1d84e8]" style="height:' + hi + '%"></div>' +
+            '</div>' +
+            '<div class="flex flex-col items-center justify-end h-full w-6 sm:w-8">' +
+              '<span class="text-[10px] font-extrabold text-slate-800 mb-0.5">' + row.closed + '</span>' +
+              '<div class="w-full rounded-t-md bg-[#22b14c]" style="height:' + hc + '%"></div>' +
+            '</div>' +
+          '</div>' +
+          '<span class="text-[10px] font-extrabold text-slate-700 mt-1.5">' + esc(mShort(k)) + '</span>' +
+        '</div>';
+      }).join("") : '<div class="w-full text-center text-slate-400 self-center font-semibold">No monthly PTW data yet.</div>';
+    }
+
+    // Section Summaries
+    var secArr = Object.values(secStats).sort(function(a, b) { return b.issued - a.issued || a.name.localeCompare(b.name); });
+    var top5 = secArr.slice(0, 5), others = secArr.slice(5), summaryRows = top5.slice();
+    if (others.length) {
+      var oIss = 0, oCls = 0, oPen = 0;
+      others.forEach(function(x) { oIss += x.issued; oCls += x.closed; oPen += x.pending; });
+      summaryRows.push({ name: "Other Sections", issued: oIss, closed: oCls, pending: oPen });
+    }
+
+    document.getElementById("pbiSecSummaryBody").innerHTML = summaryRows.length ? summaryRows.map(function(r) {
+      var pct = r.issued ? (r.closed / r.issued) * 100 : 0;
+      var pctStr = pct % 1 === 0 ? pct.toFixed(0) + "%" : pct.toFixed(1) + "%";
+      return '<tr class="hover:bg-blue-50/60"><td class="px-3 py-1.5 font-bold text-slate-800">' + esc(r.name) + '</td><td class="px-2 py-1.5 text-center">' + r.issued + '</td><td class="px-2 py-1.5 text-center">' + r.closed + '</td><td class="px-2 py-1.5 text-center font-extrabold ' + (pct >= 100 ? 'text-emerald-700' : 'text-amber-700') + '">' + pctStr + '</td></tr>';
+    }).join("") : '<tr><td colspan="4" class="text-center py-6 text-slate-400">No PTW data for selected period.</td></tr>';
+    document.getElementById("pbiSecSummaryFoot").innerHTML = '<tr><td class="px-3 py-2">Total</td><td class="px-2 py-2 text-center">' + issued + '</td><td class="px-2 py-2 text-center">' + closed + '</td><td class="px-2 py-2 text-center">' + pctLabel + '</td></tr>';
+
+    // Donut Chart
+    var palette = ["#1d84e8", "#f7941d", "#5cb83a", "#9c4d8b", "#00a6d6", "#9ca3af"];
+    var donutBox = document.getElementById("pbiDonutSvgBox"), donutLeg = document.getElementById("pbiDonutLegend");
+    if (summaryRows.length && issued > 0) {
+      var R = 52, C = 2 * Math.PI * R, offsetAcc = 0, circles = "";
+      summaryRows.forEach(function(r, idx) {
+        var frac = r.issued / issued, segLen = frac * C;
+        circles += '<circle cx="80" cy="80" r="' + R + '" fill="none" stroke="' + palette[idx % palette.length] + '" stroke-width="26" stroke-dasharray="' + Math.max(0.5, segLen - 1.2).toFixed(2) + ' ' + C.toFixed(2) + '" stroke-dashoffset="' + (-offsetAcc).toFixed(2) + '"></circle>';
+        offsetAcc += segLen;
+      });
+      donutBox.innerHTML = '<div class="relative w-40 h-40"><svg viewBox="0 0 160 160" class="w-full h-full -rotate-90">' + circles + '</svg><div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none"><div class="text-xl font-black text-slate-900 leading-none">' + issued + '</div><div class="text-[10px] font-extrabold text-slate-600 mt-0.5">Total PTW</div></div></div>';
+      donutLeg.innerHTML = summaryRows.map(function(r, idx) {
+        var share = ((r.issued / issued) * 100).toFixed(1) + "%";
+        return '<div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + palette[idx % palette.length] + '"></span><span class="truncate max-w-[100px] text-slate-800">' + esc(r.name) + '</span><span class="text-slate-500">– ' + share + '</span></div>';
+      }).join("");
+    } else {
+      donutBox.innerHTML = '<div class="text-slate-400 text-xs font-semibold">No Data</div>';
+      donutLeg.innerHTML = '<div class="text-slate-400 text-xs">No sections for this period</div>';
+    }
+
+    // Section Wise Details
+    document.getElementById("pbiSecDetailsBody").innerHTML = secArr.length ? secArr.map(function(r) {
+      var pct = r.issued ? (r.closed / r.issued) * 100 : 0;
+      var pctStr = pct % 1 === 0 ? pct.toFixed(0) + "%" : pct.toFixed(1) + "%";
+      return '<tr class="hover:bg-blue-50/60"><td class="px-2.5 py-1.5 font-bold text-slate-800">' + esc(r.name) + '</td><td class="px-1.5 py-1.5 text-center">' + r.issued + '</td><td class="px-1.5 py-1.5 text-center">' + r.closed + '</td><td class="px-1.5 py-1.5 text-center font-bold ' + (r.pending > 0 ? 'text-red-600' : 'text-slate-500') + '">' + pad2(r.pending) + '</td><td class="px-2 py-1.5 text-center font-extrabold ' + (pct >= 100 ? 'text-emerald-700' : 'text-amber-700') + '">' + pctStr + '</td></tr>';
+    }).join("") : '<tr><td colspan="5" class="text-center py-6 text-slate-400">No PTW records for selected period.</td></tr>';
+    document.getElementById("pbiSecDetailsFoot").innerHTML = '<tr><td class="px-2.5 py-2">Total</td><td class="px-1.5 py-2 text-center">' + issued + '</td><td class="px-1.5 py-2 text-center">' + closed + '</td><td class="px-1.5 py-2 text-center">' + pad2(pending) + '</td><td class="px-2 py-2 text-center">' + pctLabel + '</td></tr>';
+
+    // Pending PTW - Section Wise
+    var penRows = summaryRows.slice().sort(function(a, b) { return b.pending - a.pending || b.issued - a.issued; });
+    var maxPen = Math.max.apply(null, penRows.map(function(r) { return r.pending; }).concat([1]));
+    document.getElementById("pbiPendingSecBox").innerHTML = penRows.length ? penRows.map(function(r, idx) {
+      var w = r.pending > 0 ? Math.max(12, Math.round((r.pending / maxPen) * 100)) : 0;
+      return '<div class="flex items-center gap-2 text-[11px]">' +
+        '<div class="w-24 text-right font-bold text-slate-700 truncate">' + esc(r.name) + '</div>' +
+        '<div class="flex-1 h-4 bg-slate-100 rounded-r-full overflow-hidden flex items-center">' +
+          (w > 0 ? '<div class="h-full rounded-r-full" style="width:' + w + '%;background:' + palette[idx % palette.length] + '"></div>' : '') +
+          '<span class="ml-1.5 font-extrabold ' + (r.pending > 0 ? 'text-slate-900' : 'text-slate-400') + '">' + pad2(r.pending) + '</span>' +
+        '</div></div>';
+    }).join("") : '<div class="text-center text-slate-400 font-semibold py-4">Zero pending PTWs for selected period.</div>';
+
+    // Key Insights & Actions (Target 100% + Day/Month Aware)
+    var topSec = secArr.length ? secArr[0] : null;
+    var topShare = (topSec && issued) ? ((topSec.issued / issued) * 100).toFixed(1) : "0";
+    var periodDesc = isDayFilter ? ("on " + dFull(df)) : ("in " + (mf === "ALL" ? "all recorded months" : mFull(mf)));
+    var insights = [
+      'Overall PTW Closure is <span class="text-[#0b3c8a]">' + pctLabel + '</span>, against target (100%).',
+      '<span class="text-[#0b3c8a]">' + issued + '</span> PTW issued &amp; <span class="text-emerald-700">' + closed + '</span> closed ' + esc(periodDesc) + '.',
+      topSec ? ('<span class="text-[#0b3c8a]">' + esc(topSec.name) + '</span> Section has the highest PTW (' + topShare + '%).') : 'No section PTW activity recorded for this period.',
+      pending > 0 ? ('Only <span class="text-red-700">' + pad2(pending) + '</span> PTW pending, immediate closure initiated with respective sections.') : 'Zero pending PTWs — 100% shutdown clearance achieved.',
+      'Continue focus on timely closure, proper PPE &amp; zero pending PTW.'
+    ];
+    document.getElementById("pbiInsightsList").innerHTML = insights.map(function(txt) {
+      return '<li class="flex items-start gap-1.5"><i class="fa-solid fa-circle-check text-emerald-600 mt-0.5 shrink-0"></i><span>' + txt + '</span></li>';
+    }).join("");
+  };
+
+  setTimeout(function() {
+    ensureDayControls();
+    window.renderPowerBiAnalytics();
+  }, 500);
+})();
 </script>
 </body>
 </html>
