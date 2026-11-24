@@ -4602,6 +4602,888 @@ function renderPowerBiAnalytics() {
     startPart10();
   }
 })();
+  // =========================================================================
+// PART 10 (UPDATED): 4-LEVEL CASCADE (SUBDIV -> SECTION -> PSS -> RECEIVER & MOBILE)
+// + SUPER ADMIN MASTER MANAGER + WHATSAPP BUTTON
+// =========================================================================
+(function () {
+  var DEFAULT_CIRCUITS = ["Ckt-1", "Ckt-2", "Single Ckt"];
+  var p10PssMap = {};
+  var p10CircuitsMap = {};
+  var p10ReceiversMap = {};
+  var p10DesignationsMap = {};
+  var p10MobilesMap = {};
+  var p10DepartmentsMap = {};
+
+  function p10Norm(v) {
+    return String(v || "").trim().toLowerCase();
+  }
+
+  function p10MakeId(prefix, text) {
+    var slug = String(text || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 36);
+    return prefix + "_" + (slug || "item") + "_" + Date.now().toString(36);
+  }
+
+  function p10SortedValues(mapObj, keyName) {
+    return Object.keys(mapObj || {})
+      .map(function (k) {
+        var item = mapObj[k];
+        if (!item) return null;
+        if (typeof item === "string") {
+          var o = { id: k };
+          o[keyName || "name"] = item;
+          return o;
+        }
+        return Object.assign({ id: k }, item);
+      })
+      .filter(function (x) {
+        return x && x[keyName || "name"];
+      })
+      .sort(function (a, b) {
+        return String(a[keyName || "name"]).localeCompare(String(b[keyName || "name"]));
+      });
+  }
+
+  function p10FillSelect(elId, items, placeholder, valueKey, labelFn) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    var prev = el.value;
+    var html = '<option value="">' + escapeHtml(placeholder) + "</option>";
+    items.forEach(function (item) {
+      var val = valueKey ? item[valueKey] : item;
+      var lbl = labelFn ? labelFn(item) : val;
+      html += '<option value="' + escapeHtml(val) + '">' + escapeHtml(lbl) + "</option>";
+    });
+    el.innerHTML = html;
+    if (prev && items.some(function (it) { return String(valueKey ? it[valueKey] : it) === prev; })) {
+      el.value = prev;
+    }
+  }
+
+  function p10FillSubdivisionSelect(elId, placeholder) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    var prev = el.value;
+    var subs = Object.values(subdivisionsMap || {})
+      .filter(function (s) { return s && s.name; })
+      .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    el.innerHTML =
+      '<option value="">' + escapeHtml(placeholder || "Select Subdivision *") + "</option>" +
+      subs
+        .map(function (s) {
+          return '<option value="' + escapeHtml(s.name) + '">' + escapeHtml(s.name) + "</option>";
+        })
+        .join("");
+    if (prev && subs.some(function (s) { return s.name === prev; })) {
+      el.value = prev;
+    }
+  }
+
+  // Case-insensitive Section dropdown helper (preserves current selection if valid)
+  window.populateSectionDropdown = function (subId, secId) {
+    var subEl = document.getElementById(subId);
+    var secEl = document.getElementById(secId);
+    if (!subEl || !secEl) return;
+    var subVal = p10Norm(subEl.value);
+    var prev = secEl.value;
+    var secs = Object.values(sectionsMap || {})
+      .filter(function (s) {
+        return s && s.name && (!subVal || p10Norm(s.subdivision) === subVal);
+      })
+      .sort(function (a, b) {
+        return String(a.name).localeCompare(String(b.name));
+      });
+    secEl.innerHTML =
+      '<option value="">Select Section *</option>' +
+      secs
+        .map(function (s) {
+          return '<option value="' + escapeHtml(s.name) + '">' + escapeHtml(s.name) + "</option>";
+        })
+        .join("");
+    if (prev && secs.some(function (s) { return s.name === prev; })) {
+      secEl.value = prev;
+    }
+  };
+
+  window.p10PopulatePssSelect = function (subId, secId, pssId, placeholder) {
+    var subVal = p10Norm((document.getElementById(subId) || {}).value);
+    var secVal = p10Norm((document.getElementById(secId) || {}).value);
+    var pssEl = document.getElementById(pssId);
+    if (!pssEl) return;
+
+    if (!secVal) {
+      pssEl.innerHTML = '<option value="">' + escapeHtml(placeholder || "Select PSS *") + "</option>";
+      return;
+    }
+    var list = p10SortedValues(p10PssMap, "name").filter(function (item) {
+      var secMatch = p10Norm(item.section) === secVal;
+      var subMatch = !subVal || !item.subdivision || p10Norm(item.subdivision) === subVal;
+      return secMatch && subMatch;
+    });
+    if (!list.length) {
+      pssEl.innerHTML = '<option value="">No PSS added for this Section</option>';
+      return;
+    }
+    p10FillSelect(pssId, list, placeholder || "Select PSS *", "name");
+  };
+
+  window.p10OnAdminSubdivChange = function (subId, secId, pssId) {
+    populateSectionDropdown(subId, secId);
+    p10PopulatePssSelect(subId, secId, pssId, "Select PSS *");
+  };
+
+  // 1. UPGRADE PTW ISSUE MODAL FORM FIELDS TO 4-LEVEL CASCADING DROPDOWNS
+  function upgradeIssuePtwFormDom() {
+    var modal = document.getElementById("issuePtwModal");
+    if (!modal || modal.dataset.part10Upgraded === "2") return;
+    var form = modal.querySelector("form");
+    if (!form) return;
+
+    form.innerHTML =
+      '<div class="grid grid-cols-2 gap-2">' +
+        '<select id="ptwSubdiv" required onchange="p10OnIssueSubdivChange()" class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select Subdivision *</option></select>' +
+        '<select id="ptwSection" required onchange="p10PopulateIssuePss()" class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select Section *</option></select>' +
+      "</div>" +
+      '<div class="grid grid-cols-2 gap-2">' +
+        '<select id="ptwSubstation" required onchange="p10OnIssuePssChange()" class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select PSS *</option></select>' +
+        '<input type="text" id="ptwFeederName" required placeholder="Feeder / LT Line Name *" class="border rounded-lg px-2.5 py-2" />' +
+      "</div>" +
+      '<div class="grid grid-cols-2 gap-2">' +
+        '<select id="ptwCircuitNo" required class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select Circuit *</option></select>' +
+        '<input type="text" id="ptwLocation" required placeholder="Exact Work Location / Pole No *" class="border rounded-lg px-2.5 py-2" />' +
+      "</div>" +
+      '<input type="text" id="ptwNature" required placeholder="Nature of Work (e.g., Conductor Snap / AB Cable) *" class="w-full border rounded-lg px-2.5 py-2" />' +
+      '<div class="grid grid-cols-2 gap-2">' +
+        '<select id="ptwReceiverName" required class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select PSS First (Receiver) *</option></select>' +
+        '<select id="ptwReceiverDesignation" required class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select Designation *</option></select>' +
+      "</div>" +
+      '<div class="grid grid-cols-2 gap-2">' +
+        '<select id="ptwReceiverMobile" required class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select PSS First (Mobile) *</option></select>' +
+        '<select id="ptwAgency" required class="border rounded-lg px-2.5 py-2 bg-white"><option value="">Select Department *</option></select>' +
+      "</div>" +
+      '<button type="submit" class="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-extrabold rounded-xl shadow">Generate 6-Digit Code &amp; Issue PTW</button>';
+
+    modal.dataset.part10Upgraded = "2";
+  }
+
+  window.p10OnIssueSubdivChange = function () {
+    populateSectionDropdown("ptwSubdiv", "ptwSection");
+    p10PopulateIssuePss();
+  };
+
+  window.p10PopulateIssuePss = function () {
+    p10PopulatePssSelect("ptwSubdiv", "ptwSection", "ptwSubstation", "Select PSS *");
+    p10OnIssuePssChange();
+  };
+
+  window.p10OnIssuePssChange = function () {
+    var subVal = p10Norm((document.getElementById("ptwSubdiv") || {}).value);
+    var secVal = p10Norm((document.getElementById("ptwSection") || {}).value);
+    var pssVal = p10Norm((document.getElementById("ptwSubstation") || {}).value);
+
+    var recEl = document.getElementById("ptwReceiverName");
+    var mobEl = document.getElementById("ptwReceiverMobile");
+
+    if (!pssVal) {
+      if (recEl) recEl.innerHTML = '<option value="">Select PSS First (Receiver) *</option>';
+      if (mobEl) mobEl.innerHTML = '<option value="">Select PSS First (Mobile) *</option>';
+      return;
+    }
+
+    var recList = p10SortedValues(p10ReceiversMap, "name").filter(function (item) {
+      var pssMatch = p10Norm(item.pss) === pssVal;
+      var secMatch = !secVal || !item.section || p10Norm(item.section) === secVal;
+      var subMatch = !subVal || !item.subdivision || p10Norm(item.subdivision) === subVal;
+      return pssMatch && secMatch && subMatch;
+    });
+    if (recEl) {
+      if (!recList.length) {
+        recEl.innerHTML = '<option value="">No PTW Receiver added for this PSS</option>';
+      } else {
+        p10FillSelect("ptwReceiverName", recList, "Select PTW Receiver *", "name");
+      }
+    }
+
+    var mobList = p10SortedValues(p10MobilesMap, "number").filter(function (item) {
+      var pssMatch = p10Norm(item.pss) === pssVal;
+      var secMatch = !secVal || !item.section || p10Norm(item.section) === secVal;
+      var subMatch = !subVal || !item.subdivision || p10Norm(item.subdivision) === subVal;
+      return pssMatch && secMatch && subMatch;
+    });
+    if (mobEl) {
+      if (!mobList.length) {
+        mobEl.innerHTML = '<option value="">No Lineman Mobile added for this PSS</option>';
+      } else {
+        p10FillSelect("ptwReceiverMobile", mobList, "Select Lineman Mobile *", "number");
+      }
+    }
+  };
+
+  function p10RefreshIssueDropdowns() {
+    upgradeIssuePtwFormDom();
+
+    // Subdivision -> Section -> PSS -> Receiver & Mobile cascade
+    p10FillSubdivisionSelect("ptwSubdiv", "Select Subdivision *");
+    populateSectionDropdown("ptwSubdiv", "ptwSection");
+    p10PopulateIssuePss();
+
+    // Circuits (fallback to DEFAULT_CIRCUITS if none saved yet)
+    var circuitItems = p10SortedValues(p10CircuitsMap, "name");
+    if (circuitItems.length) {
+      p10FillSelect("ptwCircuitNo", circuitItems, "Select Circuit *", "name");
+    } else {
+      p10FillSelect(
+        "ptwCircuitNo",
+        DEFAULT_CIRCUITS.map(function (c) { return { name: c }; }),
+        "Select Circuit *",
+        "name"
+      );
+    }
+
+    // Division-wide masters: Designations & Departments
+    p10FillSelect("ptwReceiverDesignation", p10SortedValues(p10DesignationsMap, "name"), "Select Designation *", "name");
+    p10FillSelect("ptwAgency", p10SortedValues(p10DepartmentsMap, "name"), "Select Department *", "name");
+  }
+
+  var origOpenIssuePtwModal = window.openIssuePtwModal;
+  window.openIssuePtwModal = function () {
+    p10RefreshIssueDropdowns();
+    if (typeof origOpenIssuePtwModal === "function") {
+      origOpenIssuePtwModal();
+    } else {
+      var m = document.getElementById("issuePtwModal");
+      if (m) m.classList.remove("hidden");
+    }
+  };
+
+  // 2. REPLACE "COPY SMS TEXT" BUTTON WITH GREEN "WHATSAPP" BUTTON IN #smsModal
+  function p10BuildWhatsAppUrl(mobile, text) {
+    var digits = String(mobile || "").replace(/\D/g, "");
+    if (digits.length === 10) digits = "91" + digits;
+    if (!digits) return "";
+    return "https://wa.me/" + digits + "?text=" + encodeURIComponent(String(text || ""));
+  }
+
+  function p10SyncWhatsAppButton() {
+    var waBtn = document.getElementById("p10WhatsappBtn");
+    if (!waBtn) return;
+    var mobile = (document.getElementById("smsModalRecipient") || {}).textContent || "";
+    var text = (document.getElementById("smsModalText") || {}).textContent || "";
+    var url = p10BuildWhatsAppUrl(mobile, text);
+    waBtn.href = url || "#";
+  }
+
+  function upgradeSmsModalToWhatsApp() {
+    var modal = document.getElementById("smsModal");
+    if (!modal || document.getElementById("p10WhatsappBtn")) return;
+    var copyBtn = modal.querySelector('button[onclick*="copySmsText"]');
+    if (copyBtn) {
+      var waLink = document.createElement("a");
+      waLink.id = "p10WhatsappBtn";
+      waLink.href = "#";
+      waLink.target = "_blank";
+      waLink.rel = "noopener noreferrer";
+      waLink.className =
+        "flex-1 text-center py-2 bg-[#25D366] hover:bg-[#1ebe5d] text-white font-bold rounded-lg shadow flex items-center justify-center gap-1.5";
+      waLink.innerHTML = '<i class="fa-brands fa-whatsapp text-sm"></i><span>WhatsApp</span>';
+      waLink.onclick = function (ev) {
+        p10SyncWhatsAppButton();
+        if (!waLink.href || waLink.getAttribute("href") === "#") {
+          ev.preventDefault();
+          alert("Valid recipient mobile number not found for WhatsApp.");
+        }
+      };
+      copyBtn.parentNode.replaceChild(waLink, copyBtn);
+    }
+
+    var smsBtn = document.getElementById("smsNativeIntentBtn");
+    if (smsBtn && !smsBtn.dataset.p10Styled) {
+      smsBtn.className =
+        "flex-1 text-center py-2 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow flex items-center justify-center gap-1.5";
+      smsBtn.innerHTML = '<i class="fa-solid fa-comment-sms"></i><span>Open SMS App</span>';
+      smsBtn.dataset.p10Styled = "1";
+    }
+
+    var obsTarget = document.getElementById("smsModalText");
+    var obsTarget2 = document.getElementById("smsModalRecipient");
+    if (typeof MutationObserver === "function") {
+      var mo = new MutationObserver(p10SyncWhatsAppButton);
+      if (obsTarget) mo.observe(obsTarget, { childList: true, characterData: true, subtree: true });
+      if (obsTarget2) mo.observe(obsTarget2, { childList: true, characterData: true, subtree: true });
+    }
+    p10SyncWhatsAppButton();
+  }
+
+  // 3. UPGRADED PTW ISSUE SUBMIT (SAVES receiverDesignation + BACKWARD COMPATIBLE FIELDS)
+  window.handleIssuePtwSubmit = function (e) {
+    e.preventDefault();
+    if (isSubmittingPtw) return;
+
+    var subdiv = (document.getElementById("ptwSubdiv") || {}).value || "";
+    var sec = (document.getElementById("ptwSection") || {}).value || "";
+    var pss = (document.getElementById("ptwSubstation") || {}).value || "";
+    var feederBase = ((document.getElementById("ptwFeederName") || {}).value || "").trim();
+    var ckt = (document.getElementById("ptwCircuitNo") || {}).value || "";
+    var loc = ((document.getElementById("ptwLocation") || {}).value || "").trim();
+    var nature = ((document.getElementById("ptwNature") || {}).value || "").trim();
+    var receiver = (document.getElementById("ptwReceiverName") || {}).value || "";
+    var designation = (document.getElementById("ptwReceiverDesignation") || {}).value || "";
+    var mobile = (document.getElementById("ptwReceiverMobile") || {}).value || "";
+    var dept = (document.getElementById("ptwAgency") || {}).value || "";
+
+    if (!subdiv || !sec || !pss || !feederBase || !ckt || !loc || !nature || !receiver || !designation || !mobile || !dept) {
+      alert("Please select / fill all mandatory fields before issuing PTW.");
+      return;
+    }
+
+    isSubmittingPtw = true;
+    var code6 = String(Math.floor(100000 + Math.random() * 900000));
+    var now = Date.now(),
+      tStr = formatTpcodlDateTime(now);
+    var feeder = feederBase + " (" + ckt + ")";
+    var sms =
+      "TPCODL LT LINE PTW ISSUED\n" +
+      "PTW Code: " + code6 + "\n" +
+      "Div: Kendrapara | Sec: " + sec + "\n" +
+      "PSS: " + pss + "\n" +
+      "Feeder: " + feeder + "\n" +
+      "Loc: " + loc + "\n" +
+      "PTW Receiver: " + receiver + " (" + designation + ")\n" +
+      "Dept: " + dept + "\n" +
+      "Issued By: " + currentUserProfile.fullName + "\n" +
+      "Time: " + tStr + "\n" +
+      "Status: LINE SHUTDOWN ACTIVE";
+
+    var ref = db.ref("ptws").push();
+    ref
+      .set({
+        id: ref.key,
+        ptwCode: code6,
+        division: "Kendrapara",
+        subdivision: subdiv,
+        section: sec,
+        substation: pss,
+        feeder: feeder,
+        circuitNo: ckt,
+        location: loc,
+        natureOfWork: nature,
+        issuerUid: currentUserProfile.uid,
+        issuerName: currentUserProfile.fullName,
+        issuerSection: currentUserProfile.section || sec,
+        receiverName: receiver,
+        receiverDesignation: designation,
+        receiverMobile: mobile,
+        agencyName: dept,
+        departmentName: dept,
+        issuedAt: now,
+        issuedTimeFormatted: tStr,
+        status: "ACTIVE"
+      })
+      .then(function () {
+        db.ref("notifications").push().set({
+          type: "PTW_ISSUED",
+          ptwId: ref.key,
+          message: "PTW #" + code6 + " ISSUED in " + sec + " | PSS: " + pss + " (" + feeder + ") by " + currentUserProfile.fullName,
+          timeFormatted: tStr,
+          createdAt: now
+        });
+        e.target.reset();
+        p10RefreshIssueDropdowns();
+        document.getElementById("issuePtwModal").classList.add("hidden");
+        upgradeSmsModalToWhatsApp();
+        document.getElementById("smsModalRecipient").textContent = mobile;
+        document.getElementById("smsModalText").textContent = sms;
+        document.getElementById("smsNativeIntentBtn").href = "sms:" + mobile + "?body=" + encodeURIComponent(sms);
+        p10SyncWhatsAppButton();
+        document.getElementById("smsModal").classList.remove("hidden");
+      })
+      .catch(function (err) {
+        alert("PTW Issue Error: " + err.message);
+      })
+      .finally(function () {
+        isSubmittingPtw = false;
+      });
+  };
+
+  // 4. SHOW DESIGNATION, PSS & DEPARTMENT IN PTW MONITOR, DETAIL MODAL & PDF EXPORT
+  window.renderPtwTable = function () {
+    var searchEl = document.getElementById("globalPtwSearch");
+    var q = (searchEl ? searchEl.value : "").toLowerCase();
+    var list = Object.values(ptwsMap || {})
+      .filter(function (p) {
+        var hay =
+          (p.ptwCode || "") + " " +
+          (p.section || "") + " " +
+          (p.substation || "") + " " +
+          (p.feeder || "") + " " +
+          (p.receiverName || "") + " " +
+          (p.receiverDesignation || "") + " " +
+          (p.agencyName || "") + " " +
+          (p.issuerName || "");
+        return p.status === currentPtwTab && hay.toLowerCase().indexOf(q) !== -1;
+      })
+      .sort(function (a, b) {
+        return (b.issuedAt || 0) - (a.issuedAt || 0);
+      });
+
+    var tbody = document.getElementById("ptwTableBody");
+    if (!tbody) return;
+    tbody.innerHTML =
+      list.length === 0
+        ? '<tr><td colspan="6" class="p-4 text-center text-slate-400">No PTW records in this tab.</td></tr>'
+        : list
+            .map(function (p) {
+              var orig = isOriginalIssuer(p);
+              var closeBtnHtml = "";
+              if (p.status === "ACTIVE") {
+                if (orig) {
+                  closeBtnHtml =
+                    '<button type="button" onclick="openCloseModal(\'' + p.id + '\')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold">Close</button>';
+                } else if (isSuperAdmin()) {
+                  closeBtnHtml =
+                    '<button type="button" onclick="openCloseModal(\'' + p.id + '\')" class="px-2.5 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded font-bold" title="Super Admin Override"><i class="fa-solid fa-shield-halved mr-1"></i>Admin Close</button>';
+                } else {
+                  closeBtnHtml =
+                    '<button type="button" onclick="openCloseModal(\'' + p.id + '\')" class="px-2.5 py-1 bg-slate-200 text-slate-400 rounded font-bold cursor-not-allowed" title="Only original issuer can close"><i class="fa-solid fa-lock mr-1"></i>Close</button>';
+                }
+              }
+              var recDisplay =
+                escapeHtml(p.receiverName || "-") +
+                (p.receiverDesignation ? ' <span class="text-slate-500">(' + escapeHtml(p.receiverDesignation) + ")</span>" : "");
+              return (
+                "<tr>" +
+                  '<td class="p-2.5 font-mono font-bold text-blue-900">#' + escapeHtml(p.ptwCode) + "</td>" +
+                  '<td class="p-2.5"><b>' + escapeHtml(p.section) + "</b>" +
+                    (p.substation ? ' <span class="text-[10px] text-blue-700 font-bold">• PSS: ' + escapeHtml(p.substation) + "</span>" : "") +
+                    "<br/>" + escapeHtml(p.feeder) + "</td>" +
+                  '<td class="p-2.5">Issuer: <b>' + escapeHtml(p.issuerName) + "</b>" +
+                    (orig ? ' <span class="text-[9px] bg-blue-100 text-blue-800 px-1 rounded font-bold">YOU</span>' : "") +
+                    "<br/>Receiver: " + recDisplay + "</td>" +
+                  '<td class="p-2.5">' + escapeHtml(p.issuedTimeFormatted) + "</td>" +
+                  '<td class="p-2.5 font-bold">' + escapeHtml(p.status) + (p.isAdminOverride ? '<div class="text-[9px] text-purple-700">Admin Override</div>' : "") + "</td>" +
+                  '<td class="p-2.5 text-right space-x-1"><button type="button" onclick="openPtwDetailModal(\'' + p.id + '\')" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded font-bold">View</button>' + closeBtnHtml + "</td>" +
+                "</tr>"
+              );
+            })
+            .join("");
+  };
+
+  window.openPtwDetailModal = function (id) {
+    var p = ptwsMap[id];
+    if (!p) return;
+    var recFull =
+      escapeHtml(p.receiverName || "-") +
+      (p.receiverDesignation ? " (" + escapeHtml(p.receiverDesignation) + ")" : "") +
+      " — " + escapeHtml(p.receiverMobile || "-");
+    document.getElementById("ptwDetailContent").innerHTML =
+      "<div><b>6-Digit PTW Code:</b> #" + escapeHtml(p.ptwCode) + "</div>" +
+      "<div><b>Subdiv / Section:</b> " + escapeHtml(p.subdivision) + " / " + escapeHtml(p.section) + "</div>" +
+      "<div><b>PSS &amp; Feeder:</b> " + escapeHtml(p.substation) + " - " + escapeHtml(p.feeder) + "</div>" +
+      "<div><b>Location &amp; Work:</b> " + escapeHtml(p.location) + " (" + escapeHtml(p.natureOfWork) + ")</div>" +
+      "<div><b>Issuer:</b> " + escapeHtml(p.issuerName) + "</div>" +
+      "<div><b>PTW Receiver:</b> " + recFull + "</div>" +
+      "<div><b>Department:</b> " + escapeHtml(p.agencyName || p.departmentName || "-") + "</div>" +
+      (p.isAdminOverride
+        ? '<div class="text-purple-800 font-bold mt-1">Super Admin Override Reason: ' + escapeHtml(p.overrideReason || "-") + "</div>"
+        : "");
+    var qrBox = document.getElementById("ptwQrCanvas");
+    qrBox.innerHTML = "";
+    new QRCode(qrBox, { text: "TPCODL-KED1-PTW:" + p.ptwCode + "|SEC:" + p.section, width: 96, height: 96 });
+    document.getElementById("ptwTimelineContainer").innerHTML =
+      '<div class="p-2 rounded bg-emerald-50 border border-emerald-200"><b>1. ISSUED:</b> ' + escapeHtml(p.issuedTimeFormatted) + " by " + escapeHtml(p.issuerName) + "</div>" +
+      '<div class="p-2 rounded ' + (p.closedAt ? "bg-emerald-50 border border-emerald-200" : "bg-slate-50 text-slate-400") + '"><b>2. CLOSED:</b> ' + escapeHtml(p.closedTimeFormatted || "Pending") + (p.closedByName ? " by " + escapeHtml(p.closedByName) : "") + (p.isAdminOverride ? " [SUPER ADMIN OVERRIDE]" : "") + "</div>" +
+      '<div class="p-2 rounded ' + (p.recoveredAt ? "bg-emerald-50 border border-emerald-200" : "bg-slate-50 text-slate-400") + '"><b>3. RECOVERED:</b> ' + escapeHtml(p.recoveredTimeFormatted || "Pending") + (p.recoveredByName ? " by " + escapeHtml(p.recoveredByName) : "") + "</div>";
+    document.getElementById("ptwDetailModal").classList.remove("hidden");
+  };
+
+  window.exportReportPdf = function () {
+    var doc = new window.jspdf.jsPDF();
+    doc.text("TPCODL KENDRAPARA DIVISION - PTW REPORT", 14, 14);
+    doc.autoTable({
+      startY: 20,
+      head: [["Code", "Section", "PSS", "Feeder", "Issuer", "PTW Receiver", "Dept", "Issued", "Status"]],
+      styles: { fontSize: 7.5 },
+      body: Object.values(ptwsMap || {}).map(function (p) {
+        var rec = (p.receiverName || "") + (p.receiverDesignation ? " (" + p.receiverDesignation + ")" : "");
+        return [
+          p.ptwCode || "",
+          p.section || "",
+          p.substation || "",
+          p.feeder || "",
+          p.issuerName || "",
+          rec,
+          p.agencyName || p.departmentName || "",
+          p.issuedTimeFormatted || "",
+          p.status || ""
+        ];
+      })
+    });
+    doc.save("TPCODL_Kendrapara_PTW_" + Date.now() + ".pdf");
+  };
+
+  // 5. SUPER ADMIN PANEL: 6 MASTER DROPDOWN MANAGERS (PSS + PSS-LINKED RECEIVER & MOBILE)
+  function injectSuperAdminMasterPanels() {
+    var secAdmin = document.getElementById("sec_admin");
+    if (!secAdmin || document.getElementById("part10MasterDropdownsPanel")) return;
+
+    var container = document.createElement("div");
+    container.id = "part10MasterDropdownsPanel";
+    container.className = "grid grid-cols-1 lg:grid-cols-2 gap-4";
+    container.innerHTML =
+      // 2A. Manage PSS (Under Section)
+      '<div class="bg-white rounded-xl border p-3.5 shadow-sm space-y-2.5">' +
+        '<h3 class="font-extrabold text-blue-950"><i class="fa-solid fa-bolt text-amber-500 mr-1.5"></i>Manage PSS (Under Section) – Add / Delete</h3>' +
+        '<form onsubmit="p10AddPss(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+          '<select id="p10PssSubdiv" required onchange="populateSectionDropdown(\'p10PssSubdiv\',\'p10PssSection\')" class="border rounded-lg px-2 py-1.5 bg-white"><option value="">Select Subdivision</option></select>' +
+          '<select id="p10PssSection" required class="border rounded-lg px-2 py-1.5 bg-white"><option value="">Select Section</option></select>' +
+          '<input type="text" id="p10PssName" required placeholder="New PSS Name *" class="border rounded-lg px-2.5 py-1.5" />' +
+          '<button type="submit" class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg">Add PSS</button>' +
+        "</form>" +
+        '<div id="p10AdminPssList" class="divide-y max-h-48 overflow-y-auto"></div>' +
+      "</div>" +
+
+      // 2B. Manage Circuits
+      '<div class="bg-white rounded-xl border p-3.5 shadow-sm space-y-2.5">' +
+        '<div class="flex items-center justify-between gap-2">' +
+          '<h3 class="font-extrabold text-blue-950"><i class="fa-solid fa-diagram-project text-blue-700 mr-1.5"></i>Manage Circuits (Ckt Dropdown)</h3>' +
+          '<button type="button" onclick="p10SeedDefaultCircuits()" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold">Load Defaults</button>' +
+        "</div>" +
+        '<form onsubmit="p10AddSimpleMaster(event, \'circuits\', \'p10CircuitInput\', \'Circuit\')" class="flex gap-2">' +
+          '<input type="text" id="p10CircuitInput" required placeholder="e.g., Ckt-1 / Ckt-2 / Single Ckt" class="flex-1 border rounded-lg px-2.5 py-1.5" />' +
+          '<button type="submit" class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg">Add</button>' +
+        "</form>" +
+        '<div id="p10AdminCircuitsList" class="divide-y max-h-48 overflow-y-auto"></div>' +
+      "</div>" +
+
+      // 2C. Manage PTW Receivers (Under PSS)
+      '<div class="bg-white rounded-xl border p-3.5 shadow-sm space-y-2.5">' +
+        '<h3 class="font-extrabold text-blue-950"><i class="fa-solid fa-user-helmet-safety text-emerald-700 mr-1.5"></i>Manage PTW Receivers (Under PSS) – Add / Delete</h3>' +
+        '<form onsubmit="p10AddReceiver(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+          '<select id="p10RecSubdiv" required onchange="p10OnAdminSubdivChange(\'p10RecSubdiv\',\'p10RecSection\',\'p10RecPss\')" class="border rounded-lg px-2 py-1.5 bg-white"><option value="">Select Subdivision</option></select>' +
+          '<select id="p10RecSection" required onchange="p10PopulatePssSelect(\'p10RecSubdiv\',\'p10RecSection\',\'p10RecPss\',\'Select PSS *\')" class="border rounded-lg px-2 py-1.5 bg-white"><option value="">Select Section</option></select>' +
+          '<select id="p10RecPss" required class="border rounded-lg px-2 py-1.5 bg-white sm:col-span-2"><option value="">Select PSS *</option></select>' +
+          '<input type="text" id="p10ReceiverInput" required placeholder="PTW Receiver Full Name *" class="border rounded-lg px-2.5 py-1.5" />' +
+          '<button type="submit" class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg">Add Receiver</button>' +
+        "</form>" +
+        '<div id="p10AdminReceiversList" class="divide-y max-h-48 overflow-y-auto"></div>' +
+      "</div>" +
+
+      // 2D. Manage Lineman Mobile Numbers (Under PSS)
+      '<div class="bg-white rounded-xl border p-3.5 shadow-sm space-y-2.5">' +
+        '<h3 class="font-extrabold text-blue-950"><i class="fa-solid fa-mobile-screen text-sky-700 mr-1.5"></i>Manage Lineman Mobiles (Under PSS) – Add / Delete</h3>' +
+        '<form onsubmit="p10AddMobile(event)" class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+          '<select id="p10MobSubdiv" required onchange="p10OnAdminSubdivChange(\'p10MobSubdiv\',\'p10MobSection\',\'p10MobPss\')" class="border rounded-lg px-2 py-1.5 bg-white"><option value="">Select Subdivision</option></select>' +
+          '<select id="p10MobSection" required onchange="p10PopulatePssSelect(\'p10MobSubdiv\',\'p10MobSection\',\'p10MobPss\',\'Select PSS *\')" class="border rounded-lg px-2 py-1.5 bg-white"><option value="">Select Section</option></select>' +
+          '<select id="p10MobPss" required class="border rounded-lg px-2 py-1.5 bg-white sm:col-span-2"><option value="">Select PSS *</option></select>' +
+          '<input type="tel" id="p10MobileInput" required pattern="[0-9]{10}" maxlength="10" placeholder="10-Digit Mobile Number *" class="border rounded-lg px-2.5 py-1.5 font-mono" />' +
+          '<button type="submit" class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg">Add Mobile</button>' +
+        "</form>" +
+        '<div id="p10AdminMobilesList" class="divide-y max-h-48 overflow-y-auto"></div>' +
+      "</div>" +
+
+      // 2E. Manage Receiver Designations
+      '<div class="bg-white rounded-xl border p-3.5 shadow-sm space-y-2.5">' +
+        '<h3 class="font-extrabold text-blue-950"><i class="fa-solid fa-id-badge text-indigo-700 mr-1.5"></i>Manage Receiver Designations – Add / Delete</h3>' +
+        '<form onsubmit="p10AddSimpleMaster(event, \'receiver_designations\', \'p10DesignationInput\', \'Designation\')" class="flex gap-2">' +
+          '<input type="text" id="p10DesignationInput" required placeholder="e.g., Lineman / Helper / Technician / JE *" class="flex-1 border rounded-lg px-2.5 py-1.5" />' +
+          '<button type="submit" class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg">Add</button>' +
+        "</form>" +
+        '<div id="p10AdminDesignationsList" class="divide-y max-h-48 overflow-y-auto"></div>' +
+      "</div>" +
+
+      // 2F. Manage Departments
+      '<div class="bg-white rounded-xl border p-3.5 shadow-sm space-y-2.5">' +
+        '<h3 class="font-extrabold text-blue-950"><i class="fa-solid fa-building text-purple-700 mr-1.5"></i>Manage Departments – Add / Delete</h3>' +
+        '<form onsubmit="p10AddSimpleMaster(event, \'departments\', \'p10DepartmentInput\', \'Department\')" class="flex gap-2">' +
+          '<input type="text" id="p10DepartmentInput" required placeholder="Department Name (e.g., O&amp;M / Safety / MRT) *" class="flex-1 border rounded-lg px-2.5 py-1.5" />' +
+          '<button type="submit" class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg">Add</button>' +
+        "</form>" +
+        '<div id="p10AdminDepartmentsList" class="divide-y max-h-48 overflow-y-auto"></div>' +
+      "</div>";
+
+    var firstGrid = secAdmin.firstElementChild;
+    if (firstGrid && firstGrid.nextSibling) {
+      secAdmin.insertBefore(container, firstGrid.nextSibling);
+    } else {
+      secAdmin.appendChild(container);
+    }
+  }
+
+  function p10RenderAdminCascades() {
+    // 1. PSS panel cascade
+    p10FillSubdivisionSelect("p10PssSubdiv", "Select Subdivision");
+    populateSectionDropdown("p10PssSubdiv", "p10PssSection");
+
+    // 2. Receiver panel cascade
+    p10FillSubdivisionSelect("p10RecSubdiv", "Select Subdivision");
+    populateSectionDropdown("p10RecSubdiv", "p10RecSection");
+    p10PopulatePssSelect("p10RecSubdiv", "p10RecSection", "p10RecPss", "Select PSS *");
+
+    // 3. Mobile panel cascade
+    p10FillSubdivisionSelect("p10MobSubdiv", "Select Subdivision");
+    populateSectionDropdown("p10MobSubdiv", "p10MobSection");
+    p10PopulatePssSelect("p10MobSubdiv", "p10MobSection", "p10MobPss", "Select PSS *");
+  }
+
+  function p10RenderAdminMasterLists() {
+    injectSuperAdminMasterPanels();
+    p10RenderAdminCascades();
+
+    // 1. PSS List
+    var pssEl = document.getElementById("p10AdminPssList");
+    if (pssEl) {
+      var pssList = p10SortedValues(p10PssMap, "name");
+      pssEl.innerHTML = pssList.length
+        ? pssList
+            .map(function (item) {
+              return (
+                '<div class="py-1.5 flex items-center justify-between gap-2">' +
+                  '<span><b>' + escapeHtml(item.name) + '</b> <span class="text-slate-500">(' + escapeHtml(item.section || "-") + (item.subdivision ? " / " + escapeHtml(item.subdivision) : "") + ")</span></span>" +
+                  '<button type="button" onclick="p10DeleteMaster(\'pss\',\'' + encodeURIComponent(item.id) + '\',\'' + encodeURIComponent(item.name) + '\')" class="px-2 py-0.5 bg-red-100 hover:bg-red-600 text-red-700 hover:text-white rounded text-[11px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Delete</button>' +
+                "</div>"
+              );
+            })
+            .join("")
+        : '<div class="py-2 text-slate-400">No PSS added yet. Select Subdivision &amp; Section above to add.</div>';
+    }
+
+    // 2. PTW Receivers List (Under PSS)
+    var recEl = document.getElementById("p10AdminReceiversList");
+    if (recEl) {
+      var recList = p10SortedValues(p10ReceiversMap, "name");
+      recEl.innerHTML = recList.length
+        ? recList
+            .map(function (item) {
+              var locTag = item.pss
+                ? ' <span class="text-slate-500">(PSS: ' + escapeHtml(item.pss) + (item.section ? " / " + escapeHtml(item.section) : "") + ")</span>"
+                : ' <span class="text-amber-600">(Unmapped PSS)</span>';
+              return (
+                '<div class="py-1.5 flex items-center justify-between gap-2">' +
+                  '<span><b>' + escapeHtml(item.name) + "</b>" + locTag + "</span>" +
+                  '<button type="button" onclick="p10DeleteMaster(\'receivers\',\'' + encodeURIComponent(item.id) + '\',\'' + encodeURIComponent(item.name) + '\')" class="px-2 py-0.5 bg-red-100 hover:bg-red-600 text-red-700 hover:text-white rounded text-[11px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Delete</button>' +
+                "</div>"
+              );
+            })
+            .join("")
+        : '<div class="py-2 text-slate-400">No PTW Receivers added yet. Select Subdivision, Section &amp; PSS above to add.</div>';
+    }
+
+    // 3. Lineman Mobiles List (Under PSS)
+    var mobEl = document.getElementById("p10AdminMobilesList");
+    if (mobEl) {
+      var mobList = p10SortedValues(p10MobilesMap, "number");
+      mobEl.innerHTML = mobList.length
+        ? mobList
+            .map(function (item) {
+              var locTag = item.pss
+                ? ' <span class="text-slate-500 font-sans">(PSS: ' + escapeHtml(item.pss) + (item.section ? " / " + escapeHtml(item.section) : "") + ")</span>"
+                : ' <span class="text-amber-600 font-sans">(Unmapped PSS)</span>';
+              return (
+                '<div class="py-1.5 flex items-center justify-between gap-2">' +
+                  '<span class="font-mono font-bold">' + escapeHtml(item.number) + locTag + "</span>" +
+                  '<button type="button" onclick="p10DeleteMaster(\'lineman_mobiles\',\'' + encodeURIComponent(item.id) + '\',\'' + encodeURIComponent(item.number) + '\')" class="px-2 py-0.5 bg-red-100 hover:bg-red-600 text-red-700 hover:text-white rounded text-[11px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Delete</button>' +
+                "</div>"
+              );
+            })
+            .join("")
+        : '<div class="py-2 text-slate-400">No Lineman Mobiles added yet. Select Subdivision, Section &amp; PSS above to add.</div>';
+    }
+
+    function renderSimpleList(elId, mapObj, nodeName, keyName, emptyMsg) {
+      var box = document.getElementById(elId);
+      if (!box) return;
+      var items = p10SortedValues(mapObj, keyName);
+      box.innerHTML = items.length
+        ? items
+            .map(function (item) {
+              var val = item[keyName];
+              return (
+                '<div class="py-1.5 flex items-center justify-between gap-2">' +
+                  '<span class="font-bold">' + escapeHtml(val) + "</span>" +
+                  '<button type="button" onclick="p10DeleteMaster(\'' + nodeName + '\',\'' + encodeURIComponent(item.id) + '\',\'' + encodeURIComponent(val) + '\')" class="px-2 py-0.5 bg-red-100 hover:bg-red-600 text-red-700 hover:text-white rounded text-[11px] font-bold"><i class="fa-solid fa-trash mr-1"></i>Delete</button>' +
+                "</div>"
+              );
+            })
+            .join("")
+        : '<div class="py-2 text-slate-400">' + emptyMsg + "</div>";
+    }
+
+    renderSimpleList("p10AdminCircuitsList", p10CircuitsMap, "circuits", "name", "Using default circuits (Ckt-1, Ckt-2, Single Ckt). Add custom circuits or click Load Defaults.");
+    renderSimpleList("p10AdminDesignationsList", p10DesignationsMap, "receiver_designations", "name", "No Receiver Designations added yet.");
+    renderSimpleList("p10AdminDepartmentsList", p10DepartmentsMap, "departments", "name", "No Departments added yet.");
+  }
+
+  // Super Admin CRUD handlers (all saved under organization/ for strict Firebase rules)
+  window.p10AddPss = function (e) {
+    e.preventDefault();
+    if (!isSuperAdmin()) { alert("Access Denied: Super Admin only."); return; }
+    var sub = (document.getElementById("p10PssSubdiv") || {}).value || "";
+    var sec = (document.getElementById("p10PssSection") || {}).value || "";
+    var inp = document.getElementById("p10PssName");
+    var name = (inp ? inp.value : "").trim();
+    if (!sub || !sec || !name) { alert("Please select Subdivision, Section, and enter PSS Name."); return; }
+
+    var dup = p10SortedValues(p10PssMap, "name").some(function (x) {
+      return p10Norm(x.name) === p10Norm(name) && p10Norm(x.section) === p10Norm(sec);
+    });
+    if (dup) { alert('PSS "' + name + '" already exists under ' + sec + "."); return; }
+
+    var id = p10MakeId("pss", sec + "_" + name);
+    db.ref("organization/pss/" + id)
+      .set({ id: id, name: name, subdivision: sub, section: sec })
+      .then(function () {
+        if (inp) inp.value = "";
+      })
+      .catch(function (err) {
+        alert("Add PSS Error: " + err.message);
+      });
+  };
+
+  window.p10AddReceiver = function (e) {
+    e.preventDefault();
+    if (!isSuperAdmin()) { alert("Access Denied: Super Admin only."); return; }
+    var sub = (document.getElementById("p10RecSubdiv") || {}).value || "";
+    var sec = (document.getElementById("p10RecSection") || {}).value || "";
+    var pss = (document.getElementById("p10RecPss") || {}).value || "";
+    var inp = document.getElementById("p10ReceiverInput");
+    var name = (inp ? inp.value : "").trim();
+    if (!sub || !sec || !pss || !name) {
+      alert("Please select Subdivision, Section, PSS, and enter PTW Receiver Name.");
+      return;
+    }
+
+    var dup = p10SortedValues(p10ReceiversMap, "name").some(function (x) {
+      return p10Norm(x.name) === p10Norm(name) && p10Norm(x.pss) === p10Norm(pss) && p10Norm(x.section) === p10Norm(sec);
+    });
+    if (dup) { alert('PTW Receiver "' + name + '" already exists under PSS ' + pss + "."); return; }
+
+    var id = p10MakeId("rec", pss + "_" + name);
+    db.ref("organization/receivers/" + id)
+      .set({ id: id, name: name, subdivision: sub, section: sec, pss: pss })
+      .then(function () {
+        if (inp) inp.value = "";
+      })
+      .catch(function (err) {
+        alert("Add Receiver Error: " + err.message);
+      });
+  };
+
+  window.p10AddMobile = function (e) {
+    e.preventDefault();
+    if (!isSuperAdmin()) { alert("Access Denied: Super Admin only."); return; }
+    var sub = (document.getElementById("p10MobSubdiv") || {}).value || "";
+    var sec = (document.getElementById("p10MobSection") || {}).value || "";
+    var pss = (document.getElementById("p10MobPss") || {}).value || "";
+    var inp = document.getElementById("p10MobileInput");
+    var num = (inp ? inp.value : "").replace(/\D/g, "");
+    if (!sub || !sec || !pss) {
+      alert("Please select Subdivision, Section, and PSS first.");
+      return;
+    }
+    if (!/^[0-9]{10}$/.test(num)) {
+      alert("Please enter a valid 10-digit mobile number.");
+      return;
+    }
+
+    var dup = p10SortedValues(p10MobilesMap, "number").some(function (x) {
+      return String(x.number) === num && p10Norm(x.pss) === p10Norm(pss) && p10Norm(x.section) === p10Norm(sec);
+    });
+    if (dup) { alert("Mobile number " + num + " already exists under PSS " + pss + "."); return; }
+
+    var id = p10MakeId("mob", pss + "_" + num);
+    db.ref("organization/lineman_mobiles/" + id)
+      .set({ id: id, number: num, subdivision: sub, section: sec, pss: pss })
+      .then(function () {
+        if (inp) inp.value = "";
+      })
+      .catch(function (err) {
+        alert("Add Mobile Error: " + err.message);
+      });
+  };
+
+  window.p10AddSimpleMaster = function (e, nodeName, inputId, label) {
+    e.preventDefault();
+    if (!isSuperAdmin()) { alert("Access Denied: Super Admin only."); return; }
+    var inp = document.getElementById(inputId);
+    var val = (inp ? inp.value : "").trim();
+    if (!val) return;
+
+    var sourceMap =
+      nodeName === "circuits" ? p10CircuitsMap :
+      nodeName === "receiver_designations" ? p10DesignationsMap :
+      p10DepartmentsMap;
+
+    var dup = p10SortedValues(sourceMap, "name").some(function (x) {
+      return p10Norm(x.name) === p10Norm(val);
+    });
+    if (dup) { alert(label + ' "' + val + '" already exists.'); return; }
+
+    var id = p10MakeId(nodeName.slice(0, 4), val);
+    db.ref("organization/" + nodeName + "/" + id)
+      .set({ id: id, name: val })
+      .then(function () {
+        if (inp) inp.value = "";
+      })
+      .catch(function (err) {
+        alert("Add " + label + " Error: " + err.message);
+      });
+  };
+
+  window.p10SeedDefaultCircuits = function () {
+    if (!isSuperAdmin()) { alert("Access Denied: Super Admin only."); return; }
+    var updates = {};
+    DEFAULT_CIRCUITS.forEach(function (c) {
+      var id = p10MakeId("circ", c);
+      updates["organization/circuits/" + id] = { id: id, name: c };
+    });
+    db.ref("/").update(updates).catch(function (err) {
+      alert("Seed Circuits Error: " + err.message);
+    });
+  };
+
+  window.p10DeleteMaster = function (nodeName, encId, encLabel) {
+    if (!isSuperAdmin()) { alert("Access Denied: Super Admin only."); return; }
+    var id = decodeURIComponent(encId);
+    var lbl = decodeURIComponent(encLabel);
+    if (!confirm('Delete "' + lbl + '" from dropdown list?')) return;
+    db.ref("organization/" + nodeName + "/" + id)
+      .remove()
+      .catch(function (err) {
+        alert("Delete Error: " + err.message);
+      });
+  };
+
+  // 6. REAL-TIME FIREBASE LISTENER FOR ALL PART 10 MASTERS
+  function startPart10() {
+    upgradeIssuePtwFormDom();
+    upgradeSmsModalToWhatsApp();
+    injectSuperAdminMasterPanels();
+
+    db.ref("organization").on("value", function (snap) {
+      var data = snap.val() || {};
+      p10PssMap = data.pss || {};
+      p10CircuitsMap = data.circuits || {};
+      p10ReceiversMap = data.receivers || {};
+      p10DesignationsMap = data.receiver_designations || {};
+      p10MobilesMap = data.lineman_mobiles || {};
+      p10DepartmentsMap = data.departments || {};
+
+      p10RefreshIssueDropdowns();
+      p10RenderAdminMasterLists();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startPart10);
+  } else {
+    startPart10();
+  }
+})();
 </script>
 </body>
 </html>
