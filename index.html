@@ -4976,6 +4976,248 @@ function renderPowerBiAnalytics() {
     startPart11();
   }
 })();
+  // =========================================================================
+// PART 12: MANUAL TYPING DEFAULT FOR RECEIVER & MOBILE + ADMIN DROPDOWN TOGGLE
+// =========================================================================
+(function () {
+  var P12_MODES_PATH = "organization/fieldModes";
+  var p12Modes = { receiverDropdown: false, mobileDropdown: false };
+  var origP10OnIssuePssChange = window.p10OnIssuePssChange;
+  var origOpenIssuePtwModal = window.openIssuePtwModal;
+  var origHandleIssuePtwSubmit = window.handleIssuePtwSubmit;
+
+  // Keep typed input values safe whenever PSS dropdown changes
+  window.p10OnIssuePssChange = function () {
+    var recEl = document.getElementById("ptwReceiverName");
+    var mobEl = document.getElementById("ptwReceiverMobile");
+    var savedRec = recEl && recEl.tagName === "INPUT" ? recEl.value : null;
+    var savedMob = mobEl && mobEl.tagName === "INPUT" ? mobEl.value : null;
+
+    if (typeof origP10OnIssuePssChange === "function") {
+      origP10OnIssuePssChange();
+    }
+
+    if (savedRec !== null && recEl && recEl.tagName === "INPUT") recEl.value = savedRec;
+    if (savedMob !== null && mobEl && mobEl.tagName === "INPUT") mobEl.value = savedMob;
+  };
+
+  function p12BuildReceiverInput() {
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.id = "ptwReceiverName";
+    inp.required = true;
+    inp.placeholder = "PTW Receiver Name *";
+    inp.autocomplete = "off";
+    inp.className = "border rounded-lg px-2.5 py-2";
+    return inp;
+  }
+
+  function p12BuildReceiverSelect() {
+    var sel = document.createElement("select");
+    sel.id = "ptwReceiverName";
+    sel.required = true;
+    sel.className = "border rounded-lg px-2.5 py-2 bg-white";
+    sel.innerHTML = '<option value="">Select PSS First (Receiver) *</option>';
+    return sel;
+  }
+
+  function p12BuildMobileInput() {
+    var inp = document.createElement("input");
+    inp.type = "tel";
+    inp.id = "ptwReceiverMobile";
+    inp.required = true;
+    inp.pattern = "[0-9]{10}";
+    inp.maxLength = 10;
+    inp.setAttribute("inputmode", "numeric");
+    inp.placeholder = "PTW Receiver 10-Digit Mobile *";
+    inp.autocomplete = "off";
+    inp.className = "border rounded-lg px-2.5 py-2 font-mono";
+    inp.addEventListener("input", function () {
+      this.value = this.value.replace(/\D/g, "").slice(0, 10);
+    });
+    return inp;
+  }
+
+  function p12BuildMobileSelect() {
+    var sel = document.createElement("select");
+    sel.id = "ptwReceiverMobile";
+    sel.required = true;
+    sel.className = "border rounded-lg px-2.5 py-2 bg-white";
+    sel.innerHTML = '<option value="">Select PSS First (Mobile) *</option>';
+    return sel;
+  }
+
+  function p12SyncIssueFormFields() {
+    var recEl = document.getElementById("ptwReceiverName");
+    if (recEl) {
+      if (!p12Modes.receiverDropdown && recEl.tagName !== "INPUT") {
+        recEl.parentNode.replaceChild(p12BuildReceiverInput(), recEl);
+      } else if (p12Modes.receiverDropdown && recEl.tagName !== "SELECT") {
+        recEl.parentNode.replaceChild(p12BuildReceiverSelect(), recEl);
+      }
+    }
+
+    var mobEl = document.getElementById("ptwReceiverMobile");
+    if (mobEl) {
+      if (!p12Modes.mobileDropdown && mobEl.tagName !== "INPUT") {
+        mobEl.parentNode.replaceChild(p12BuildMobileInput(), mobEl);
+      } else if (p12Modes.mobileDropdown && mobEl.tagName !== "SELECT") {
+        mobEl.parentNode.replaceChild(p12BuildMobileSelect(), mobEl);
+      }
+    }
+
+    if (p12Modes.receiverDropdown || p12Modes.mobileDropdown) {
+      window.p10OnIssuePssChange();
+    }
+  }
+
+  function p12InjectAdminModeCard() {
+    var secAdmin = document.getElementById("sec_admin");
+    if (!secAdmin || document.getElementById("p12FieldModeCard")) return;
+
+    var card = document.createElement("div");
+    card.id = "p12FieldModeCard";
+    card.className = "bg-white rounded-xl border border-blue-200 p-3.5 shadow-sm space-y-2.5";
+    card.innerHTML =
+      '<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">' +
+        '<h3 class="font-extrabold text-blue-950 text-sm"><i class="fa-solid fa-sliders text-blue-700 mr-1.5"></i>PTW Receiver &amp; Mobile Input Mode (Manual / Dropdown)</h3>' +
+        '<span class="text-[11px] text-slate-500 font-semibold">Live for all Division users</span>' +
+      "</div>" +
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">' +
+        '<div class="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-50 border">' +
+          '<div>' +
+            '<div class="font-bold text-slate-800">PTW Receiver Name</div>' +
+            '<div id="p12RecModeStatus" class="text-[11px] font-bold text-emerald-700">Manual Typing (Active)</div>' +
+          "</div>" +
+          '<button type="button" id="p12RecModeBtn" onclick="p12ToggleFieldMode(\'receiverDropdown\')" class="px-3 py-1.5 rounded-lg font-bold text-white bg-blue-900 hover:bg-blue-800 shadow-sm">Enable Dropdown</button>' +
+        "</div>" +
+        '<div class="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-50 border">' +
+          '<div>' +
+            '<div class="font-bold text-slate-800">PTW Receiver Mobile Number</div>' +
+            '<div id="p12MobModeStatus" class="text-[11px] font-bold text-emerald-700">Manual Typing (Active)</div>' +
+          "</div>" +
+          '<button type="button" id="p12MobModeBtn" onclick="p12ToggleFieldMode(\'mobileDropdown\')" class="px-3 py-1.5 rounded-lg font-bold text-white bg-blue-900 hover:bg-blue-800 shadow-sm">Enable Dropdown</button>' +
+        "</div>" +
+      "</div>";
+
+    var masterPanel = document.getElementById("part10MasterDropdownsPanel");
+    if (masterPanel && masterPanel.parentNode) {
+      masterPanel.parentNode.insertBefore(card, masterPanel);
+    } else {
+      secAdmin.appendChild(card);
+    }
+  }
+
+  function p12SyncAdminUi() {
+    p12InjectAdminModeCard();
+
+    var recStatus = document.getElementById("p12RecModeStatus");
+    var recBtn = document.getElementById("p12RecModeBtn");
+    if (recStatus && recBtn) {
+      if (p12Modes.receiverDropdown) {
+        recStatus.textContent = "Dropdown Mode (Active)";
+        recStatus.className = "text-[11px] font-bold text-blue-700";
+        recBtn.textContent = "Switch to Manual";
+        recBtn.className = "px-3 py-1.5 rounded-lg font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm";
+      } else {
+        recStatus.textContent = "Manual Typing (Active)";
+        recStatus.className = "text-[11px] font-bold text-emerald-700";
+        recBtn.textContent = "Enable Dropdown";
+        recBtn.className = "px-3 py-1.5 rounded-lg font-bold text-white bg-blue-900 hover:bg-blue-800 shadow-sm";
+      }
+    }
+
+    var mobStatus = document.getElementById("p12MobModeStatus");
+    var mobBtn = document.getElementById("p12MobModeBtn");
+    if (mobStatus && mobBtn) {
+      if (p12Modes.mobileDropdown) {
+        mobStatus.textContent = "Dropdown Mode (Active)";
+        mobStatus.className = "text-[11px] font-bold text-blue-700";
+        mobBtn.textContent = "Switch to Manual";
+        mobBtn.className = "px-3 py-1.5 rounded-lg font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm";
+      } else {
+        mobStatus.textContent = "Manual Typing (Active)";
+        mobStatus.className = "text-[11px] font-bold text-emerald-700";
+        mobBtn.textContent = "Enable Dropdown";
+        mobBtn.className = "px-3 py-1.5 rounded-lg font-bold text-white bg-blue-900 hover:bg-blue-800 shadow-sm";
+      }
+    }
+
+    // Show/hide PSS-linked Receiver & Mobile admin cards based on active mode
+    var recList = document.getElementById("p10AdminReceiversList");
+    if (recList && recList.parentElement) {
+      recList.parentElement.style.display = p12Modes.receiverDropdown ? "" : "none";
+    }
+    var mobList = document.getElementById("p10AdminMobilesList");
+    if (mobList && mobList.parentElement) {
+      mobList.parentElement.style.display = p12Modes.mobileDropdown ? "" : "none";
+    }
+  }
+
+  window.p12ToggleFieldMode = function (fieldKey) {
+    if (typeof isSuperAdmin !== "function" || !isSuperAdmin()) {
+      alert("Access Denied: Super Admin only.");
+      return;
+    }
+    var nextVal = !p12Modes[fieldKey];
+    db.ref(P12_MODES_PATH + "/" + fieldKey)
+      .set(nextVal)
+      .catch(function (err) {
+        alert("Mode Update Error: " + err.message);
+      });
+  };
+
+  window.openIssuePtwModal = function () {
+    if (typeof origOpenIssuePtwModal === "function") origOpenIssuePtwModal();
+    p12SyncIssueFormFields();
+  };
+
+  window.handleIssuePtwSubmit = function (e) {
+    var recEl = document.getElementById("ptwReceiverName");
+    var mobEl = document.getElementById("ptwReceiverMobile");
+
+    if (recEl && recEl.tagName === "INPUT") {
+      recEl.value = recEl.value.trim();
+      if (!recEl.value) {
+        e.preventDefault();
+        alert("Please enter PTW Receiver Name.");
+        recEl.focus();
+        return;
+      }
+    }
+    if (mobEl && mobEl.tagName === "INPUT") {
+      mobEl.value = mobEl.value.replace(/\D/g, "");
+      if (!/^[0-9]{10}$/.test(mobEl.value)) {
+        e.preventDefault();
+        alert("Please enter a valid 10-digit Mobile Number.");
+        mobEl.focus();
+        return;
+      }
+    }
+    if (typeof origHandleIssuePtwSubmit === "function") {
+      return origHandleIssuePtwSubmit.call(this, e);
+    }
+  };
+
+  function startPart12() {
+    p12SyncIssueFormFields();
+    p12SyncAdminUi();
+
+    db.ref(P12_MODES_PATH).on("value", function (snap) {
+      var val = snap.val() || {};
+      p12Modes.receiverDropdown = Boolean(val.receiverDropdown);
+      p12Modes.mobileDropdown = Boolean(val.mobileDropdown);
+      p12SyncIssueFormFields();
+      p12SyncAdminUi();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startPart12);
+  } else {
+    startPart12();
+  }
+})();
 </script>
 </body>
 </html>
